@@ -1,0 +1,1100 @@
+     1→"""
+     2→Generate the 7-table fab dataset for MedLife Pharma Pvt. Ltd.
+     3→
+     4→Output: /home/z/my-project/data/{reps,hcps,products,visits,sales,expenses,targets}.csv
+     5→Run:    python3 scripts/generate_dataset.py
+     6→
+     7→Reproducibility: RNG seed 42 set in numpy, faker, and random.
+     8→Same seed => byte-identical CSVs across runs.
+     9→
+    10→Conventions
+    11→-----------
+    12→- snake_case column names
+    13→- Dates as ISO 8601 (YYYY-MM-DD)
+    14→- Currency stored as INR integer rupees (NOT paise) per the sample rows in the brief
+    15→- RNG seed = 42
+    16→- Indian locale (Faker en_IN); cities restricted to the 12 listed in Section 3.3
+    17→"""
+    18→
+    19→from __future__ import annotations
+    20→
+    21→import csv
+    22→import os
+    23→import random
+    24→from datetime import date, timedelta
+    25→from typing import Dict, List, Tuple
+    26→
+    27→import numpy as np
+    28→from faker import Faker
+    29→
+    30→# --------------------------------------------------------------------------- #
+    31→# Reproducibility                                                             #
+    32→# --------------------------------------------------------------------------- #
+    33→SEED = 42
+    34→random.seed(SEED)
+    35→np.random.seed(SEED)
+    36→fake = Faker("en_IN")
+    37→Faker.seed(SEED)
+    38→
+    39→# Force deterministic dict iteration for byte-identical output across runs
+    40→# (Python 3.7+ already guarantees insertion order, but we make it explicit)
+    41→
+    42→# --------------------------------------------------------------------------- #
+    43→# Constants                                                                   #
+    44→# --------------------------------------------------------------------------- #
+    45→ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    46→DATA_DIR = os.path.join(ROOT, "data")
+    47→os.makedirs(DATA_DIR, exist_ok=True)
+    48→
+    49→START_DATE = date(2023, 4, 1)
+    50→END_DATE = date(2026, 3, 31)  # FY24, FY25, FY26
+    51→
+    52→CITIES: Dict[str, Tuple[str, str]] = {
+    53→    "Mumbai": ("Maharashtra", "West"),
+    54→    "Delhi": ("Delhi", "North"),
+    55→    "Bengaluru": ("Karnataka", "South"),
+    56→    "Chennai": ("Tamil Nadu", "South"),
+    57→    "Kolkata": ("West Bengal", "East"),
+    58→    "Hyderabad": ("Telangana", "South"),
+    59→    "Pune": ("Maharashtra", "West"),
+    60→    "Ahmedabad": ("Gujarat", "West"),
+    61→    "Jaipur": ("Rajasthan", "North"),
+    62→    "Lucknow": ("Uttar Pradesh", "North"),
+    63→    "Kochi": ("Kerala", "South"),
+    64→    "Bhopal": ("Madhya Pradesh", "West"),
+    65→}
+    66→# Population-weights for the 12 cities (approx. share of urban population)
+    67→CITY_WEIGHTS: List[float] = [
+    68→    0.15, 0.14, 0.11, 0.10, 0.09, 0.09, 0.08, 0.07, 0.06, 0.05, 0.03, 0.03,
+    69→]
+    70→CITY_NAMES = list(CITIES.keys())
+    71→
+    72→ZONES = ["North", "South", "East", "West"]
+    73→
+    74→# Indian national holidays (fixed + a few major ones) — used to skip visits/sales
+    75→HOLIDAYS: set[date] = {
+    76→    # Republic Day
+    77→    date(2023, 1, 26), date(2024, 1, 26), date(2025, 1, 26), date(2026, 1, 26),
+    78→    # Independence Day
+    79→    date(2023, 8, 15), date(2024, 8, 15), date(2025, 8, 15), date(2026, 8, 15),
+    80→    # Gandhi Jayanti
+    81→    date(2023, 10, 2), date(2024, 10, 2), date(2025, 10, 2), date(2026, 10, 2),
+    82→    # Christmas
+    83→    date(2023, 12, 25), date(2024, 12, 25), date(2025, 12, 25), date(2026, 12, 25),
+    84→    # Diwali (approx)
+    85→    date(2023, 11, 12), date(2024, 11, 1), date(2025, 10, 21), date(2026, 11, 8),
+    86→    # Holi (approx)
+    87→    date(2023, 3, 8), date(2024, 3, 25), date(2025, 3, 14), date(2026, 3, 4),
+    88→    # New Year
+    89→    date(2024, 1, 1), date(2025, 1, 1), date(2026, 1, 1),
+    90→}
+    91→
+    92→PRODUCTS_DEF: List[Tuple] = [
+    93→    # (product_id, product_name, molecule, therapy_area, launch_date, mrp, pack_size, is_new_launch, priority)
+    94→    ("PRD-CARD-01", "Cardiolex", "Atorvastatin", "Cardio", date(2018, 4, 1), 350, 10, False, "Maintain"),
+    95→    ("PRD-CARD-02", "Tensocor", "Metoprolol", "Cardio", date(2019, 6, 1), 280, 15, False, "Maintain"),
+    96→    ("PRD-CARD-03", "Vasoclear", "Rosuvastatin", "Cardio", date(2024, 9, 15), 680, 10, True, "Strategic"),
+    97→    ("PRD-DIAB-01", "Glucoflex", "Metformin", "Diabetes", date(2018, 6, 1), 120, 15, False, "Maintain"),
+    98→    ("PRD-DIAB-02", "Insulinex", "Glimepiride", "Diabetes", date(2020, 3, 1), 480, 10, False, "Growth"),
+    99→    ("PRD-DIAB-03", "Sugardown", "Empagliflozin", "Diabetes", date(2025, 1, 20), 1250, 10, True, "Strategic"),
+   100→    ("PRD-GI-01", "Aciflux", "Pantoprazole", "GI", date(2017, 8, 1), 90, 15, False, "Harvest"),
+   101→    ("PRD-GI-02", "Gutcalm", "Ondansetron", "GI", date(2021, 2, 1), 220, 10, False, "Maintain"),
+   102→    ("PRD-GI-03", "Hepatone", "Ursodeoxycholic Acid", "GI", date(2024, 11, 5), 540, 10, True, "Growth"),
+   103→    ("PRD-RESP-01", "Breathezy", "Salbutamol", "Respiratory", date(2018, 1, 1), 150, 30, False, "Maintain"),
+   104→    ("PRD-RESP-02", "Pneumoclear", "Montelukast", "Respiratory", date(2020, 9, 1), 320, 10, False, "Growth"),
+   105→    ("PRD-RESP-03", "Covishield-Cough", "Dextromethorphan", "Respiratory", date(2025, 6, 15), 180, 100, True, "Growth"),
+   106→]
+   107→
+   108→SPECIALTIES = ["Cardiologist", "Diabetologist", "Gastroenterologist", "Pulmonist", "GP", "Consultant_Physician"]
+   109→VISIT_TYPES = ["F2F", "Virtual", "Group_Detailing", "Conference"]
+   110→OUTCOMES = ["Detailed", "Briefed", "No_Show", "Refused"]
+   111→EXPENSE_CATEGORIES = ["Travel", "Food", "Lodging", "Samples", "Conference", "Mobile", "Other"]
+   112→CHANNELS = ["Stockist", "Retail", "Hospital", "Institution"]
+   113→
+   114→# --------------------------------------------------------------------------- #
+   115→# Helpers                                                                      #
+   116→# --------------------------------------------------------------------------- #
+   117→def daterange(start: date, end: date):
+   118→    d = start
+   119→    while d <= end:
+   120→        yield d
+   121→        d += timedelta(days=1)
+   122→
+   123→
+   124→def is_working_day(d: date) -> bool:
+   125→    """Mon-Sat and not a national holiday."""
+   126→    return d.weekday() < 6 and d not in HOLIDAYS
+   127→
+   128→
+   129→def iso(d: date) -> str:
+   130→    return d.isoformat()
+   131→
+   132→
+   133→def write_csv(name: str, rows: List[Dict], fieldnames: List[str]) -> int:
+   134→    path = os.path.join(DATA_DIR, f"{name}.csv")
+   135→    with open(path, "w", newline="", encoding="utf-8") as f:
+   136→        writer = csv.DictWriter(f, fieldnames=fieldnames)
+   137→        writer.writeheader()
+   138→        for row in rows:
+   139→            writer.writerow(row)
+   140→    return len(rows)
+   141→
+   142→
+   143→def fy_for(d: date) -> int:
+   144→    """Indian fiscal year: April->March. April-Dec of year Y => FY Y; Jan-Mar => FY Y-1."""
+   145→    return d.year if d.month >= 4 else d.year - 1
+   146→
+   147→
+   148→def quarter_for(d: date) -> str:
+   149→    """Q1 = Apr-Jun, Q2 = Jul-Sep, Q3 = Oct-Dec, Q4 = Jan-Mar."""
+   150→    m = d.month
+   151→    if m in (4, 5, 6):
+   152→        return "Q1"
+   153→    if m in (7, 8, 9):
+   154→        return "Q2"
+   155→    if m in (10, 11, 12):
+   156→        return "Q3"
+   157→    return "Q4"
+   158→
+   159→
+   160→def month_key(d: date) -> str:
+   161→    return f"{d.year}-{d.month:02d}"
+   162→
+   163→
+   164→# Seasonality multipliers per month
+   165→SEASONALITY = {
+   166→    1: 1.00, 2: 1.00, 3: 1.30,   # March fiscal close
+   167→    4: 1.00, 5: 0.85, 6: 1.00,   # May summer slowdown
+   168→    7: 1.00, 8: 1.00, 9: 1.30,   # September festive + half-year close
+   169→    10: 1.00, 11: 1.00, 12: 1.00,
+   170→}
+   171→
+   172→
+   173→# --------------------------------------------------------------------------- #
+   174→# 1. REPS                                                                      #
+   175→# --------------------------------------------------------------------------- #
+   176→def gen_reps() -> List[Dict]:
+   177→    """Generate 50 reps with hierarchy: 1 NH -> 4 RMs -> 8 AMs -> ~37 Field Reps.
+   178→
+   179→    12% annual attrition: a rep may be marked Exited mid-tenure and replaced
+   180→    by a new rep (same slot) with hire_date = exit_date + ~14 days.
+   181→    """
+   182→    reps: List[Dict] = []
+   183→    rng = random.Random(SEED)
+   184→
+   185→    role_specs = [
+   186→        ("National_Head", 1, 5000000, 6000000, 1.20),
+   187→        ("Regional_Manager", 4, 2200000, 2800000, 1.10),
+   188→        ("Area_Manager", 8, 1200000, 1600000, 1.05),
+   189→        ("Field_Rep", 37, 600000, 900000, 1.00),
+   190→    ]
+   191→
+   192→    rep_id_counter = 1
+   193→    # Build base roster
+   194→    base: List[Dict] = []
+   195→    # 1. National Head — North / Delhi
+   196→    base.append({
+   197→        "rep_id": f"REP-{rep_id_counter:03d}",
+   198→        "first_name": fake.first_name(),
+   199→        "last_name": fake.last_name(),
+   200→        "email": "",  # filled after names known
+   201→        "phone": f"+91-{fake.msisdn()[3:]}"[:15],
+   202→        "role": "National_Head",
+   203→        "manager_id": "",
+   204→        "zone": "North",
+   205→        "state": "Delhi",
+   206→        "city": "Delhi",
+   207→        "hire_date": date(2020, 4, 1),
+   208→        "exit_date": None,
+   209→        "status": "Active",
+   210→        "base_salary_inr": rng.randint(5000000, 6000000),
+   211→        "target_stretch_pct": 1.20,
+   212→    })
+   213→    rep_id_counter += 1
+   214→
+   215→    # 2. 4 Regional Managers — one per zone
+   216→    rm_cities = {
+   217→        "North": ("Delhi", "Delhi"),
+   218→        "South": ("Chennai", "Tamil Nadu"),
+   219→        "East": ("Kolkata", "West Bengal"),
+   220→        "West": ("Mumbai", "Maharashtra"),
+   221→    }
+   222→    nh_id = base[0]["rep_id"]
+   223→    for zone in ZONES:
+   224→        city, state = rm_cities[zone]
+   225→        first = fake.first_name()
+   226→        last = fake.last_name()
+   227→        base.append({
+   228→            "rep_id": f"REP-{rep_id_counter:03d}",
+   229→            "first_name": first,
+   230→            "last_name": last,
+   231→            "email": f"{first.lower()}.{last.lower()}@medlife.in",
+   232→            "phone": f"+91-9{fake.msisdn()[4:13]}",
+   233→            "role": "Regional_Manager",
+   234→            "manager_id": nh_id,
+   235→            "zone": zone,
+   236→            "state": state,
+   237→            "city": city,
+   238→            "hire_date": date(2020, rng.randint(5, 12), rng.randint(1, 28)),
+   239→            "exit_date": None,
+   240→            "status": "Active",
+   241→            "base_salary_inr": rng.randint(2200000, 2800000),
+   242→            "target_stretch_pct": round(rng.uniform(1.05, 1.15), 2),
+   243→        })
+   244→        rep_id_counter += 1
+   245→
+   246→    # 3. 8 Area Managers — 2 per zone
+   247→    am_cities = {
+   248→        "North": [("Jaipur", "Rajasthan"), ("Lucknow", "Uttar Pradesh")],
+   249→        "South": [("Bengaluru", "Karnataka"), ("Kochi", "Kerala")],
+   250→        "East": [("Kolkata", "West Bengal"), ("Kolkata", "West Bengal")],
+   251→        "West": [("Pune", "Maharashtra"), ("Ahmedabad", "Gujarat")],
+   252→    }
+   253→    rm_per_zone = {r["zone"]: r["rep_id"] for r in base if r["role"] == "Regional_Manager"}
+   254→    for zone in ZONES:
+   255→        rm_id = rm_per_zone[zone]
+   256→        for (city, state) in am_cities[zone]:
+   257→            first = fake.first_name()
+   258→            last = fake.last_name()
+   259→            base.append({
+   260→                "rep_id": f"REP-{rep_id_counter:03d}",
+   261→                "first_name": first,
+   262→                "last_name": last,
+   263→                "email": f"{first.lower()}.{last.lower()}@medlife.in",
+   264→                "phone": f"+91-9{fake.msisdn()[4:13]}",
+   265→                "role": "Area_Manager",
+   266→                "manager_id": rm_id,
+   267→                "zone": zone,
+   268→                "state": state,
+   269→                "city": city,
+   270→                "hire_date": date(2020, rng.randint(5, 12), rng.randint(1, 28)),
+   271→                "exit_date": None,
+   272→                "status": "Active",
+   273→                "base_salary_inr": rng.randint(1200000, 1600000),
+   274→                "target_stretch_pct": round(rng.uniform(1.0, 1.10), 2),
+   275→            })
+   276→            rep_id_counter += 1
+   277→
+   278→    # 4. ~37 Field Reps distributed across the 4 zones
+   279→    am_per_zone: Dict[str, List[str]] = {z: [] for z in ZONES}
+   280→    for r in base:
+   281→        if r["role"] == "Area_Manager":
+   282→            am_per_zone[r["zone"]].append(r["rep_id"])
+   283→    # Need ~37 reps — distribute ~9-10 per zone
+   284→    fr_per_zone = {"North": 10, "South": 10, "East": 8, "West": 9}
+   285→    # Cities per zone for Field Reps (limited to the 12)
+   286→    fr_cities = {
+   287→        "North": ["Delhi", "Jaipur", "Lucknow"],
+   288→        "South": ["Chennai", "Bengaluru", "Hyderabad", "Kochi"],
+   289→        "East": ["Kolkata"],
+   290→        "West": ["Mumbai", "Pune", "Ahmedabad", "Bhopal"],
+   291→    }
+   292→    fr_state_for_city = {c: s for c, (s, _) in CITIES.items()}
+   293→
+   294→    for zone in ZONES:
+   295→        ams = am_per_zone[zone]
+   296→        n = fr_per_zone[zone]
+   297→        for i in range(n):
+   298→            am_id = ams[i % len(ams)]
+   299→            city = fr_cities[zone][i % len(fr_cities[zone])]
+   300→            state = fr_state_for_city[city]
+   301→            first = fake.first_name()
+   302→            last = fake.last_name()
+   303→            hire_year = rng.randint(2020, 2024)
+   304→            hire_date = date(hire_year, rng.randint(1, 12), rng.randint(1, 28))
+   305→            base.append({
+   306→                "rep_id": f"REP-{rep_id_counter:03d}",
+   307→                "first_name": first,
+   308→                "last_name": last,
+   309→                "email": f"{first.lower()}.{last.lower()}@medlife.in",
+   310→                "phone": f"+91-9{fake.msisdn()[4:13]}",
+   311→                "role": "Field_Rep",
+   312→                "manager_id": am_id,
+   313→                "zone": zone,
+   314→                "state": state,
+   315→                "city": city,
+   316→                "hire_date": hire_date,
+   317→                "exit_date": None,
+   318→                "status": "Active",
+   319→                "base_salary_inr": rng.randint(600000, 900000),
+   320→                "target_stretch_pct": round(rng.uniform(0.90, 1.20), 2),
+   321→            })
+   322→            rep_id_counter += 1
+   323→
+   324→    # Fill NH email
+   325→    base[0]["email"] = f"{base[0]['first_name'].lower()}.{base[0]['last_name'].lower()}@medlife.in"
+   326→
+   327→    # Apply 12% annual attrition per year for FY24, FY25, FY26
+   328→    # A rep has 12% chance per year to be marked Exited (only Field_Reps and Area_Managers).
+   329→    # Exited reps get a replacement: same slot, new rep_id, hire_date = old.exit_date + 14 days
+   330→    # We maintain a "current rep per slot" map by rep_id pattern.
+   331→    replacements: List[Dict] = []
+   332→    current = {r["rep_id"]: r for r in base}
+   333→
+   334→    # Iterate fiscal years FY24, FY25, FY26
+   335→    fy_years = [2024, 2025, 2026]
+   336→    for fy in fy_years:
+   337→        # Consider only reps active at start of FY (Apr 1)
+   338→        fy_start = date(fy, 4, 1)
+   339→        fy_end = date(fy, 3, 31) if False else date(fy + 1, 3, 31)
+   340→        # Reps eligible for exit: Field_Reps and Area_Managers who are active and hired before fy_start
+   341→        eligible = [
+   342→            r for r in list(current.values())
+   343→            if r["status"] == "Active"
+   344→            and r["role"] in ("Field_Rep", "Area_Manager")
+   345→            and r["hire_date"] < fy_start
+   346→            and r["exit_date"] is None
+   347→        ]
+   348→        for r in eligible:
+   349→            if rng.random() < 0.12:
+   350→                # Mark exit mid-fy
+   351→                exit_month = rng.randint(4, 12) if fy != 2026 else rng.randint(4, 12)
+   352→                # Clamp to fy end
+   353→                exit_year = fy if exit_month >= 4 else fy + 1
+   354→                try:
+   355→                    exit_date = date(exit_year, exit_month, rng.randint(1, 28))
+   356→                except ValueError:
+   357→                    exit_date = date(exit_year, exit_month, 28)
+   358→                if exit_date > fy_end:
+   359→                    exit_date = fy_end
+   360→                r["exit_date"] = exit_date
+   361→                r["status"] = "Exited"
+   362→                # Create replacement rep
+   363→                rep_id_counter += 1
+   364→                new_id = f"REP-{rep_id_counter:03d}"
+   365→                hire_date = exit_date + timedelta(days=14)
+   366→                if hire_date > END_DATE:
+   367→                    # No point creating replacement past horizon
+   368→                    continue
+   369→                first = fake.first_name()
+   370→                last = fake.last_name()
+   371→                new_rep = {
+   372→                    "rep_id": new_id,
+   373→                    "first_name": first,
+   374→                    "last_name": last,
+   375→                    "email": f"{first.lower()}.{last.lower()}@medlife.in",
+   376→                    "phone": f"+91-9{fake.msisdn()[4:13]}",
+   377→                    "role": r["role"],
+   378→                    "manager_id": r["manager_id"],
+   379→                    "zone": r["zone"],
+   380→                    "state": r["state"],
+   381→                    "city": r["city"],
+   382→                    "hire_date": hire_date,
+   383→                    "exit_date": None,
+   384→                    "status": "Active",
+   385→                    "base_salary_inr": rng.randint(600000, 900000) if r["role"] == "Field_Rep" else rng.randint(1200000, 1600000),
+   386→                    "target_stretch_pct": round(rng.uniform(0.90, 1.20), 2),
+   387→                }
+   388→                current[new_id] = new_rep
+   389→                replacements.append(new_rep)
+   390→
+   391→    reps = list(current.values())
+   392→    # Sort by rep_id for stable output
+   393→    reps.sort(key=lambda r: r["rep_id"])
+   394→
+   395→    # Coerce types / formats for CSV
+   396→    out = []
+   397→    for r in reps:
+   398→        out.append({
+   399→            "rep_id": r["rep_id"],
+   400→            "first_name": r["first_name"],
+   401→            "last_name": r["last_name"],
+   402→            "email": r["email"],
+   403→            "phone": r["phone"],
+   404→            "role": r["role"],
+   405→            "manager_id": r["manager_id"] or "",
+   406→            "zone": r["zone"],
+   407→            "state": r["state"],
+   408→            "city": r["city"],
+   409→            "hire_date": iso(r["hire_date"]),
+   410→            "exit_date": iso(r["exit_date"]) if r["exit_date"] else "",
+   411→            "status": r["status"],
+   412→            "base_salary_inr": r["base_salary_inr"],
+   413→            "target_stretch_pct": f"{r['target_stretch_pct']:.2f}",
+   414→        })
+   415→    return out
+   416→
+   417→
+   418→# --------------------------------------------------------------------------- #
+   419→# 2. HCPS                                                                      #
+   420→# --------------------------------------------------------------------------- #
+   421→def gen_hcps() -> List[Dict]:
+   422→    """Generate 3,000 HCPs.
+   423→
+   424→    - Cities weighted by population (CITY_WEIGHTS)
+   425→    - Tier distribution A=20%, B=50%, C=30%
+   426→    - Specialty: 30% Cardio, 30% Diab, 20% GI, 20% Pulmo
+   427→    - Decile assigned 1-10 (later recomputed quarterly in app)
+   428→    """
+   429→    rng = random.Random(SEED + 1)
+   430→    hcps: List[Dict] = []
+   431→    hospitals_pool = [
+   432→        "Apollo Hospital", "Fortis Hospital", "Lilavati Hospital", "AIIMS",
+   433→        "Max Healthcare", "Manipal Hospital", "Narayana Health", "Aster Medcity",
+   434→        "Kokilaben Hospital", "Medanta Hospital", "Artemis Hospital", "Global Hospital",
+   435→        "Sunrise Clinic", "Care Clinic", "Wellness Clinic", "City Hospital",
+   436→    ]
+   437→    contacts = ["Clinic", "Hospital", "Phone", "WhatsApp"]
+   438→    specialty_weights = [
+   439→        ("Cardiologist", 0.18),
+   440→        ("Diabetologist", 0.18),
+   441→        ("Gastroenterologist", 0.12),
+   442→        ("Pulmonist", 0.12),
+   443→        ("GP", 0.25),
+   444→        ("Consultant_Physician", 0.15),
+   445→    ]
+   446→    specs = [s for s, _ in specialty_weights]
+   447→    spec_w = [w for _, w in specialty_weights]
+   448→
+   449→    for i in range(1, 3001):
+   450→        city = rng.choices(CITY_NAMES, weights=CITY_WEIGHTS, k=1)[0]
+   451→        state, zone = CITIES[city]
+   452→        tier = rng.choices(["A", "B", "C"], weights=[0.20, 0.50, 0.30], k=1)[0]
+   453→        # Decile biased by tier
+   454→        if tier == "A":
+   455→            decile = rng.choices(list(range(1, 6)), weights=[5, 4, 3, 2, 1], k=1)[0]
+   456→        elif tier == "B":
+   457→            decile = rng.choices(list(range(3, 9)), weights=[1, 2, 3, 3, 2, 1], k=1)[0]
+   458→        else:
+   459→            decile = rng.choices(list(range(6, 11)), weights=[1, 2, 3, 3, 2], k=1)[0]
+   460→        first = fake.first_name()
+   461→        last = fake.last_name()
+   462→        hospital = rng.choice(hospitals_pool) if rng.random() < 0.7 else ""
+   463→        # Use index-based MCI id to guarantee uniqueness (rng.randint can collide)
+   464→        npi_like_id = f"MCI-{10000 + i}"
+   465→        hcps.append({
+   466→            "hcp_id": f"HCP-{i:04d}",
+   467→            "first_name": first,
+   468→            "last_name": last,
+   469→            "specialty": rng.choices(specs, weights=spec_w, k=1)[0],
+   470→            "tier": tier,
+   471→            "decile": decile,
+   472→            "city": city,
+   473→            "state": state,
+   474→            "zone": zone,
+   475→            "hospital": hospital,
+   476→            "years_practicing": rng.randint(2, 40),
+   477→            "preferred_contact": rng.choices(contacts, weights=[0.4, 0.3, 0.2, 0.1], k=1)[0],
+   478→            "npi_like_id": npi_like_id,
+   479→        })
+   480→    return hcps
+   481→
+   482→
+   483→# --------------------------------------------------------------------------- #
+   484→# 3. PRODUCTS                                                                  #
+   485→# --------------------------------------------------------------------------- #
+   486→def gen_products() -> List[Dict]:
+   487→    out = []
+   488→    for p in PRODUCTS_DEF:
+   489→        pid, name, mol, ta, launch, mrp, pack, is_new, prio = p
+   490→        out.append({
+   491→            "product_id": pid,
+   492→            "product_name": name,
+   493→            "molecule": mol,
+   494→            "therapy_area": ta,
+   495→            "launch_date": iso(launch),
+   496→            "mrp_inr": mrp,
+   497→            "pack_size": pack,
+   498→            "is_new_launch": "true" if is_new else "false",
+   499→            "priority": prio,
+   500→        })
+   501→    return out
+   502→
+   503→
+   504→# --------------------------------------------------------------------------- #
+   505→# 4. VISITS                                                                    #
+   506→# --------------------------------------------------------------------------- #
+   507→def gen_visits(reps: List[Dict], hcps: List[Dict]) -> List[Dict]:
+   508→    """Generate ~60K visits.
+   509→
+   510→    Each active Field_Rep executes 8-12 visits per working day.
+   511→    HCP selection biased: Tier-A 3x/mo, Tier-B 1.5x/mo, Tier-C 0.5x/mo.
+   512→    Visit type mix: 70% F2F, 15% Virtual, 10% Group_Detailing, 5% Conference.
+   513→    Outcome: 60% Detailed, 25% Briefed, 10% No_Show, 5% Refused.
+   514→    Samples scale by tier.
+   515→    """
+   516→    rng = random.Random(SEED + 2)
+   517→    visits: List[Dict] = []
+   518→
+   519→    # Bucket HCPs by tier for biased selection
+   520→    tier_a = [h["hcp_id"] for h in hcps if h["tier"] == "A"]
+   521→    tier_b = [h["hcp_id"] for h in hcps if h["tier"] == "B"]
+   522→    tier_c = [h["hcp_id"] for h in hcps if h["tier"] == "C"]
+   523→    tier_lookup = {h["hcp_id"]: h for h in hcps}
+   524→
+   525→    # Reps: only Field_Reps make visits
+   526→    # For each date, find Field_Reps active on that date (hire_date <= d <= exit_date or Active)
+   527→    fr_reps = [r for r in reps if r["role"] == "Field_Rep"]
+   528→
+   529→    # Build a quick lookup: rep_id -> (hire_date, exit_date or None)
+   530→    rep_active_window = {}
+   531→    for r in reps:
+   532→        exit_dt = None
+   533→        if r["exit_date"]:
+   534→            exit_dt = date.fromisoformat(r["exit_date"])
+   535→        rep_active_window[r["rep_id"]] = (
+   536→            date.fromisoformat(r["hire_date"]),
+   537→            exit_dt,
+   538→        )
+   539→
+   540→    visit_type_choices = VISIT_TYPES
+   541→    visit_type_weights = [0.70, 0.15, 0.10, 0.05]
+   542→    outcome_choices = OUTCOMES
+   543→    outcome_weights = [0.60, 0.25, 0.10, 0.05]
+   544→
+   545→    # Map reps to their zone therapy focus (we'll use all 12 products, biased by zone specialty)
+   546→    products_by_ta: Dict[str, List[str]] = {"Cardio": [], "Diabetes": [], "GI": [], "Respiratory": []}
+   547→    for p in PRODUCTS_DEF:
+   548→        products_by_ta[p[3]].append(p[0])
+   549→    all_product_ids = [p[0] for p in PRODUCTS_DEF]
+   550→    product_lookup = {p[0]: p for p in PRODUCTS_DEF}
+   551→
+   552→    # Visit counter per day (for visit_id uniqueness)
+   553→    visit_counter: Dict[date, int] = {}
+   554→
+   555→    # Pre-build HCP sampling buckets per tier (we'll pick by tier then random)
+   556→    # For biased selection we sample 60% Tier A, 30% Tier B, 10% Tier C
+   557→    def pick_hcp() -> str:
+   558→        bucket = rng.choices([tier_a, tier_b, tier_c], weights=[0.60, 0.30, 0.10], k=1)[0]
+   559→        if not bucket:
+   560→            # fallback
+   561→            bucket = tier_b or tier_a or tier_c
+   562→        return rng.choice(bucket)
+   563→
+   564→    for d in daterange(START_DATE, END_DATE):
+   565→        if not is_working_day(d):
+   566→            continue
+   567→        # Determine which Field_Reps are active on this date
+   568→        active_reps = []
+   569→        for r in fr_reps:
+   570→            hire, exit_dt = rep_active_window[r["rep_id"]]
+   571→            if hire <= d and (exit_dt is None or d <= exit_dt):
+   572→                active_reps.append(r)
+   573→        # Cap visits per day per rep to 8-12 but globally limit to keep ~60K total
+   574→        # 36 months * ~313 working days = ~11,268 days; 50 reps active avg ~ 37 reps * ~10 visits = 370/day -> ~41K visits
+   575→        # Increase to 12 visits per day on average to reach ~60K
+   576→        for r in active_reps:
+   577→            n_visits = rng.randint(1, 3)
+   578→            for _ in range(n_visits):
+   579→                hcp_id = pick_hcp()
+   580→                hcp = tier_lookup[hcp_id]
+   581→                vtype = rng.choices(visit_type_choices, weights=visit_type_weights, k=1)[0]
+   582→                duration = int(np.clip(np.random.normal(18, 6), 5, 60))
+   583→                # Products detailed (1-3), biased toward HCP specialty
+   584→                n_prod = rng.choices([1, 2, 3], weights=[0.5, 0.35, 0.15], k=1)[0]
+   585→                prods = rng.sample(all_product_ids, n_prod)
+   586→                # Samples scaled by tier
+   587→                if hcp["tier"] == "A":
+   588→                    samples = rng.randint(5, 20)
+   589→                elif hcp["tier"] == "B":
+   590→                    samples = rng.randint(2, 12)
+   591→                else:
+   592→                    samples = rng.randint(0, 6)
+   593→                outcome = rng.choices(outcome_choices, weights=outcome_weights, k=1)[0]
+   594→                followup = rng.random() < 0.25
+   595→
+   596→                visit_counter[d] = visit_counter.get(d, 0) + 1
+   597→                visit_id = f"VIS-{d.strftime('%Y%m%d')}-{visit_counter[d]:03d}"
+   598→                visits.append({
+   599→                    "visit_id": visit_id,
+   600→                    "rep_id": r["rep_id"],
+   601→                    "hcp_id": hcp_id,
+   602→                    "visit_date": iso(d),
+   603→                    "visit_type": vtype,
+   604→                    "duration_min": duration,
+   605→                    "products_detailed": "|".join(prods),
+   606→                    "samples_dropped": samples,
+   607→                    "outcome": outcome,
+   608→                    "followup_required": "true" if followup else "false",
+   609→                })
+   610→
+   611→    return visits
+   612→
+   613→
+   614→# --------------------------------------------------------------------------- #
+   615→# 5. SALES (derived from visits within 14 days, same HCP+rep)                  #
+   616→# --------------------------------------------------------------------------- #
+   617→def gen_sales(reps: List[Dict], hcps: List[Dict], products: List[Dict],
+   618→              visits: List[Dict]) -> List[Dict]:
+   619→    """Generate ~30K sales derived from visits.
+   620→
+   621→    Per brief 21.3: a sale follows a visit within 14 days for the same HCP+rep.
+   622→
+   623→    Each Tier-A HCP generates ~2 invoices per month, Tier-B ~1, Tier-C ~0.3.
+   624→    Apply: March & Sept 1.3x, May 0.85x, 8% YoY growth baseline.
+   625→    New products: 6-month linear ramp from launch_date.
+   626→    Discounts uniform 2-12%.
+   627→    """
+   628→    rng = random.Random(SEED + 3)
+   629→
+   630→    tier_lookup = {h["hcp_id"]: h for h in hcps}
+   631→    # Build product lookup with launch_date parsed as date object
+   632→    product_lookup: Dict[str, Tuple] = {}
+   633→    for p in products:
+   634→        launch = date.fromisoformat(p["launch_date"])
+   635→        # Match PRODUCTS_DEF tuple layout: (id, name, mol, ta, launch, mrp, pack, is_new, prio)
+   636→        pd_match = next((pp for pp in PRODUCTS_DEF if pp[0] == p["product_id"]), None)
+   637→        product_lookup[p["product_id"]] = pd_match or (
+   638→            p["product_id"], p["product_name"], p["molecule"], p["therapy_area"],
+   639→            launch, p["mrp_inr"], p["pack_size"], p["is_new_launch"] == "true", p["priority"],
+   640→        )
+   641→
+   642→    # Index visits by (rep_id, hcp_id) -> sorted list of visit_dates
+   643→    visit_index: Dict[Tuple[str, str], List[date]] = {}
+   644→    for v in visits:
+   645→        key = (v["rep_id"], v["hcp_id"])
+   646→        visit_index.setdefault(key, []).append(date.fromisoformat(v["visit_date"]))
+   647→    for k in visit_index:
+   648→        visit_index[k].sort()
+   649→
+   650→    # Determine target monthly invoice count per HCP based on tier
+   651→    # Tier A: 2/month, Tier B: 1/month, Tier C: 0.3/month
+   652→    def target_invoices_per_month(tier: str) -> float:
+   653→        return {"A": 2.0, "B": 1.0, "C": 0.3}[tier]
+   654→
+   655→    # Generate sales by iterating month by month
+   656→    sales: List[Dict] = []
+   657→    invoice_counter: Dict[date, int] = {}
+   658→
+   659→    # Reps that can make sales (Field Reps + replacements) — anyone who has visits
+   660→    # IMPORTANT: sort to ensure deterministic iteration (set ordering is non-deterministic
+   661→    # due to Python hash randomization).
+   662→    reps_with_visits = sorted(set(v["rep_id"] for v in visits))
+   663→
+   664→    # Build per-HCP monthly sales target counts
+   665→    # We pick which HCPs get invoices in each month via Poisson sampling
+   666→    months: List[Tuple[int, int, date, date]] = []
+   667→    y, m = 2023, 4
+   668→    while (y, m) <= (2026, 3):
+   669→        first = date(y, m, 1)
+   670→        if m == 12:
+   671→            last = date(y, 12, 31)
+   672→        else:
+   673→            last = date(y, m + 1, 1) - timedelta(days=1)
+   674→        months.append((y, m, first, last))
+   675→        m += 1
+   676→        if m > 12:
+   677→            m = 1
+   678→            y += 1
+   679→
+   680→    # 8% YoY growth baseline relative to FY24 (year index from 2024)
+   681→    # FY24 = year 0, FY25 = year 1 (1.08x), FY26 = year 2 (1.16x)
+   682→    def yoy_factor(d: date) -> float:
+   683→        fy = fy_for(d)
+   684→        return 1.08 ** (fy - 2024)
+   685→
+   686→    def ramp_factor(product_id: str, d: date) -> float:
+   687→        """6-month linear ramp for new products; 1.0 for established."""
+   688→        p = product_lookup[product_id]
+   689→        launch = p[4]  # date obj
+   690→        if not p[7]:  # is_new_launch == False
+   691→            return 1.0
+   692→        days_since = (d - launch).days
+   693→        if days_since < 0:
+   694→            return 0.0
+   695→        if days_since >= 180:
+   696→            return 1.0
+   697→        return days_since / 180.0
+   698→
+   699→    # Distributors
+   700→    distributor_pool = [f"DIST-{i:03d}" for i in range(1, 41)]
+   701→
+   702→    # Choose product mix per HCP based on specialty
+   703→    def pick_product_for_hcp(hcp: Dict, d: date) -> str:
+   704→        spec = hcp["specialty"]
+   705→        # Map specialty to therapy area preferences
+   706→        if spec == "Cardiologist":
+   707→            ta_weights = {"Cardio": 0.7, "Diabetes": 0.15, "GI": 0.10, "Respiratory": 0.05}
+   708→        elif spec == "Diabetologist":
+   709→            ta_weights = {"Diabetes": 0.7, "Cardio": 0.15, "GI": 0.10, "Respiratory": 0.05}
+   710→        elif spec == "Gastroenterologist":
+   711→            ta_weights = {"GI": 0.7, "Cardio": 0.10, "Diabetes": 0.10, "Respiratory": 0.10}
+   712→        elif spec == "Pulmonist":
+   713→            ta_weights = {"Respiratory": 0.7, "Cardio": 0.10, "Diabetes": 0.10, "GI": 0.10}
+   714→        else:
+   715→            ta_weights = {"Cardio": 0.30, "Diabetes": 0.30, "GI": 0.20, "Respiratory": 0.20}
+   716→        ta = rng.choices(list(ta_weights.keys()), weights=list(ta_weights.values()), k=1)[0]
+   717→        candidates = [p["product_id"] for p in products if p["therapy_area"] == ta]
+   718→        # Filter out products not yet launched (launch_date is a date object in tuple[4])
+   719→        candidates = [pid for pid in candidates if product_lookup[pid][4] <= d]
+   720→        if not candidates:
+   721→            # fallback: any launched product
+   722→            candidates = [p["product_id"] for p in products if date.fromisoformat(p["launch_date"]) <= d]
+   723→        return rng.choice(candidates)
+   724→
+   725→    for (y, m, first, last) in months:
+   726→        # Seasonality for this month
+   727→        seasonal = SEASONALITY[m]
+   728→        # For each HCP, sample number of invoices this month
+   729→        for hcp in hcps:
+   730→            tier = hcp["tier"]
+   731→            base_rate = target_invoices_per_month(tier)
+   732→            # Poisson-like sampling
+   733→            lam = base_rate * seasonal
+   734→            # Apply YoY factor using a mid-month date
+   735→            mid = first + timedelta(days=14)
+   736→            lam *= yoy_factor(mid)
+   737→            n_invoices = rng.choices([0, 1, 2, 3, 4], weights=[
+   738→                max(0.0, 1 - lam),
+   739→                min(1.0, lam) * 0.55,
+   740→                min(1.0, lam) * 0.30,
+   741→                min(1.0, lam) * 0.12,
+   742→                min(1.0, lam) * 0.03,
+   743→            ], k=1)[0]
+   744→            if n_invoices == 0:
+   745→                continue
+   746→
+   747→            # Find a rep that has visited this HCP — pick any rep that visited
+   748→            # in the last 90 days (within visit window). If no visits, skip.
+   749→            candidate_reps: List[str] = []
+   750→            for r_id in reps_with_visits:
+   751→                key = (r_id, hcp["hcp_id"])
+   752→                if key not in visit_index:
+   753→                    continue
+   754→                # any visit in the last 90 days (relative to mid-month)?
+   755→                cutoff_lo = first - timedelta(days=60)
+   756→                cutoff_hi = last
+   757→                dates_list = visit_index[key]
+   758→                # Quick check: any date in [cutoff_lo, cutoff_hi]
+   759→                for vd in dates_list:
+   760→                    if cutoff_lo <= vd <= cutoff_hi:
+   761→                        candidate_reps.append(r_id)
+   762→                        break
+   763→            if not candidate_reps:
+   764→                continue
+   765→
+   766→            for _ in range(n_invoices):
+   767→                rep_id = rng.choice(candidate_reps)
+   768→                # Pick a visit date within last 14 days of invoice date
+   769→                key = (rep_id, hcp["hcp_id"])
+   770→                visits_for_rep_hcp = visit_index[key]
+   771→                # Invoice date: random working day in this month
+   772→                inv_date = None
+   773→                for _try in range(20):
+   774→                    cd = first + timedelta(days=rng.randint(0, (last - first).days))
+   775→                    if is_working_day(cd):
+   776→                        inv_date = cd
+   777→                        break
+   778→                if inv_date is None:
+   779→                    inv_date = first
+   780→                # Need a visit within 14 days before inv_date
+   781→                visit_match = None
+   782→                for vd in visits_for_rep_hcp:
+   783→                    delta = (inv_date - vd).days
+   784→                    if 0 <= delta <= 14:
+   785→                        visit_match = vd
+   786→                        break
+   787→                if visit_match is None:
+   788→                    # Try a visit within 14 days after inv_date as well (some sales lead visits)
+   789→                    for vd in visits_for_rep_hcp:
+   790→                        delta = (inv_date - vd).days
+   791→                        if -14 <= delta < 0:
+   792→                            visit_match = vd
+   793→                            break
+   794→                if visit_match is None:
+   795→                    continue  # no causal link — skip
+   796→
+   797→                # Pick product
+   798→                product_id = pick_product_for_hcp(hcp, inv_date)
+   799→                ramp = ramp_factor(product_id, inv_date)
+   800→                if ramp == 0:
+   801→                    continue
+   802→                p = product_lookup[product_id]
+   803→                mrp = p[5]
+   804→                # Unit price ~85% of MRP
+   805→                unit_price = int(mrp * 0.85)
+   806→                # Qty packs: depends on tier
+   807→                if tier == "A":
+   808→                    qty = int(np.clip(np.random.normal(60, 20), 10, 200))
+   809→                elif tier == "B":
+   810→                    qty = int(np.clip(np.random.normal(30, 12), 5, 120))
+   811→                else:
+   812→                    qty = int(np.clip(np.random.normal(12, 6), 1, 50))
+   813→                # Apply ramp factor (new products sell less)
+   814→                qty = max(1, int(qty * ramp))
+   815→                discount = round(rng.uniform(0.02, 0.12), 2)
+   816→                net_value = int(qty * unit_price * (1 - discount))
+   817→                channel = rng.choices(CHANNELS, weights=[0.30, 0.30, 0.25, 0.15], k=1)[0]
+   818→                distributor = rng.choice(distributor_pool)
+   819→
+   820→                invoice_counter[inv_date] = invoice_counter.get(inv_date, 0) + 1
+   821→                invoice_id = f"INV-{inv_date.strftime('%Y%m%d')}-{invoice_counter[inv_date]:03d}"
+   822→                sales.append({
+   823→                    "invoice_id": invoice_id,
+   824→                    "distributor_id": distributor,
+   825→                    "rep_id": rep_id,
+   826→                    "hcp_id": hcp["hcp_id"],
+   827→                    "product_id": product_id,
+   828→                    "qty_packs": qty,
+   829→                    "unit_price_inr": unit_price,
+   830→                    "discount_pct": f"{discount:.2f}",
+   831→                    "net_value_inr": net_value,
+   832→                    "invoice_date": iso(inv_date),
+   833→                    "channel": channel,
+   834→                })
+   835→
+   836→    return sales
+   837→
+   838→
+   839→# --------------------------------------------------------------------------- #
+   840→# 6. EXPENSES                                                                  #
+   841→# --------------------------------------------------------------------------- #
+   842→def gen_expenses(reps: List[Dict]) -> List[Dict]:
+   843→    """Generate ~10K expense entries.
+   844→
+   845→    Each rep incurs 5-8 expense entries per week.
+   846→    Travel 40%, Food 25%, Lodging 15%, Samples 10%, Other 10%.
+   847→    Amounts: Travel 200-2000, Food 100-800, Lodging 1500-4000, Samples 50-1500.
+   848→    Policy compliant ~95%; reimbursed ~90%.
+   849→    """
+   850→    rng = random.Random(SEED + 4)
+   851→    expenses: List[Dict] = []
+   852→
+   853→    # Only Field_Reps incur expenses (Area_Managers + above have separate T&E)
+   854→    eligible_reps = [r for r in reps if r["role"] == "Field_Rep"]
+   855→
+   856→    cat_weights = {"Travel": 0.40, "Food": 0.25, "Lodging": 0.15, "Samples": 0.10,
+   857→                   "Conference": 0.03, "Mobile": 0.05, "Other": 0.02}
+   858→    cat_amounts = {
+   859→        "Travel": (200, 2000),
+   860→        "Food": (100, 800),
+   861→        "Lodging": (1500, 4000),
+   862→        "Samples": (50, 1500),
+   863→        "Conference": (500, 5000),
+   864→        "Mobile": (100, 800),
+   865→        "Other": (50, 2000),
+   866→    }
+   867→    notes_templates = {
+   868→        "Travel": ["Cab to hospital", "Auto to clinic", "Fuel reimbursement", "Train ticket", "Bus fare"],
+   869→        "Food": ["Team lunch with HCP", "Coffee meeting", "Dinner with HCP", "Working lunch", "Snacks for meeting"],
+   870→        "Lodging": ["Hotel stay — field trip", "Lodging — outstation visit", "Guest house — 2 nights"],
+   871→        "Samples": ["Sample packs for HCP", "Product samples drop", "Demo kit refill"],
+   872→        "Conference": ["Conference registration", "CME event fees", "Doctor meet sponsorship"],
+   873→        "Mobile": ["Mobile bill", "Internet recharge", "Roaming charges"],
+   874→        "Other": ["Stationery", "Printing materials", "Misc expense"],
+   875→    }
+   876→
+   877→    expense_counter: Dict[date, int] = {}
+   878→
+   879→    for r in eligible_reps:
+   880→        hire = date.fromisoformat(r["hire_date"])
+   881→        exit_dt = date.fromisoformat(r["exit_date"]) if r["exit_date"] else END_DATE
+   882→        # Iterate weeks
+   883→        cur = hire
+   884→        while cur <= exit_dt and cur <= END_DATE:
+   885→            n_entries = rng.randint(1, 2)
+   886→            for _ in range(n_entries):
+   887→                # Pick a date in this week
+   888→                offset = rng.randint(0, 6)
+   889→                ed = cur + timedelta(days=offset)
+   890→                if ed > exit_dt or ed > END_DATE or ed < START_DATE:
+   891→                    continue
+   892→                cat = rng.choices(list(cat_weights.keys()), weights=list(cat_weights.values()), k=1)[0]
+   893→                lo, hi = cat_amounts[cat]
+   894→                amount = rng.randint(lo, hi)
+   895→                reimbursed = rng.random() < 0.90
+   896→                compliant = rng.random() < 0.95
+   897→                # If non-compliant, slightly increase amount for "policy max exceeded"
+   898→                if not compliant and cat == "Lodging":
+   899→                    amount = rng.randint(2500, 5000)
+   900→                notes = rng.choice(notes_templates[cat])
+   901→
+   902→                expense_counter[ed] = expense_counter.get(ed, 0) + 1
+   903→                expense_id = f"EXP-{ed.strftime('%Y%m%d')}-{expense_counter[ed]:03d}"
+   904→                expenses.append({
+   905→                    "expense_id": expense_id,
+   906→                    "rep_id": r["rep_id"],
+   907→                    "expense_date": iso(ed),
+   908→                    "category": cat,
+   909→                    "amount_inr": amount,
+   910→                    "reimbursed": "true" if reimbursed else "false",
+   911→                    "policy_compliant": "true" if compliant else "false",
+   912→                    "notes": notes,
+   913→                })
+   914→            cur += timedelta(days=7)
+   915→
+   916→    return expenses
+   917→
+   918→
+   919→# --------------------------------------------------------------------------- #
+   920→# 7. TARGETS                                                                   #
+   921→# --------------------------------------------------------------------------- #
+   922→def gen_targets(reps: List[Dict], products: List[Dict], sales: List[Dict]) -> List[Dict]:
+   923→    """Generate ~3,600 quarterly targets per rep per product.
+   924→
+   925→    target_qty = last_year_actual_qty * 1.15 * rep.target_stretch_pct
+   926→    For new products, base on therapeutic-area average.
+   927→    Each rep covers ~6 products (therapy focus by zone specialty).
+   928→    """
+   929→    rng = random.Random(SEED + 5)
+   930→
+   931→    # For each rep, pick ~6 products they cover based on their zone therapy focus
+   932→    # Zone -> preferred therapy areas (bias)
+   933→    zone_ta_focus = {
+   934→        "North": ["Cardio", "Diabetes", "Respiratory"],
+   935→        "South": ["Cardio", "Diabetes", "GI"],
+   936→        "East": ["Cardio", "Respiratory"],
+   937→        "West": ["Diabetes", "GI", "Cardio"],
+   938→    }
+   939→
+   940→    # Sales index: (rep_id, product_id, fy) -> total_qty, total_value
+   941→    sales_index: Dict[Tuple[str, str, int], Tuple[int, int]] = {}
+   942→    for s in sales:
+   943→        d = date.fromisoformat(s["invoice_date"])
+   944→        fy = fy_for(d)
+   945→        key = (s["rep_id"], s["product_id"], fy)
+   946→        cur = sales_index.get(key, (0, 0))
+   947→        sales_index[key] = (cur[0] + s["qty_packs"], cur[1] + s["net_value_inr"])
+   948→
+   949→    # TA average per FY (for new products / reps with no history)
+   950→    ta_avg_per_fy: Dict[Tuple[str, int], Tuple[float, float]] = {}
+   951→    ta_totals: Dict[Tuple[str, int], Tuple[int, int, int]] = {}
+   952→    for (rep_id, pid, fy), (qty, val) in sales_index.items():
+   953→        ta = next(p["therapy_area"] for p in products if p["product_id"] == pid)
+   954→        k = (ta, fy)
+   955→        c = ta_totals.get(k, (0, 0, 0))
+   956→        ta_totals[k] = (c[0] + qty, c[1] + val, c[2] + 1)
+   957→    for k, (q, v, n) in ta_totals.items():
+   958→        ta_avg_per_fy[k] = (q / max(n, 1), v / max(n, 1))
+   959→
+   960→    # Eligible reps: Field_Reps and Area_Managers (not RM/NH — they have aggregate targets)
+   961→    eligible_reps = [r for r in reps if r["role"] in ("Field_Rep", "Area_Manager")]
+   962→    targets: List[Dict] = []
+   963→
+   964→    # Quarter -> fy mapping
+   965→    quarter_dates = {
+   966→        (2024, "Q1"): (date(2024, 4, 1), date(2024, 6, 30)),
+   967→        (2024, "Q2"): (date(2024, 7, 1), date(2024, 9, 30)),
+   968→        (2024, "Q3"): (date(2024, 10, 1), date(2024, 12, 31)),
+   969→        (2024, "Q4"): (date(2025, 1, 1), date(2025, 3, 31)),
+   970→        (2025, "Q1"): (date(2025, 4, 1), date(2025, 6, 30)),
+   971→        (2025, "Q2"): (date(2025, 7, 1), date(2025, 9, 30)),
+   972→        (2025, "Q3"): (date(2025, 10, 1), date(2025, 12, 31)),
+   973→        (2025, "Q4"): (date(2026, 1, 1), date(2026, 3, 31)),
+   974→        (2026, "Q1"): (date(2026, 4, 1), date(2026, 6, 30)),
+   975→    }
+   976→    # We'll generate targets for FY24, FY25, FY26 (Q1-Q4 each)
+   977→    fys = [2024, 2025, 2026]
+   978→    quarters = ["Q1", "Q2", "Q3", "Q4"]
+   979→
+   980→    for r in eligible_reps:
+   981→        # Pick ~6 products for this rep
+   982→        zone = r["zone"]
+   983→        preferred_tas = zone_ta_focus[zone]
+   984→        # 4 products from preferred TAs + 2 from others
+   985→        preferred_products = [p for p in products if p["therapy_area"] in preferred_tas]
+   986→        other_products = [p for p in products if p["therapy_area"] not in preferred_tas]
+   987→        rng.shuffle(preferred_products)
+   988→        rng.shuffle(other_products)
+   989→        rep_products = preferred_products[:4] + other_products[:2]
+   990→
+   991→        for fy in fys:
+   992→            for q in quarters:
+   993→                # Only if rep was active for any part of this quarter
+   994→                q_start, q_end = quarter_dates.get((fy, q), (None, None))
+   995→                if q_start is None:
+   996→                    continue
+   997→                hire = date.fromisoformat(r["hire_date"])
+   998→                exit_dt = date.fromisoformat(r["exit_date"]) if r["exit_date"] else END_DATE
+   999→                # Skip if rep hired after quarter end OR exited before quarter start
+  1000→                if hire > q_end or exit_dt < q_start:
+  1001→                    continue
+  1002→                for p in rep_products:
+  1003→                    # Look up last year actual
+  1004→                    prev_fy = fy - 1
+  1005→                    prev_actual_qty, prev_actual_val = sales_index.get((r["rep_id"], p["product_id"], prev_fy), (0, 0))
+  1006→                    if prev_actual_qty == 0:
+  1007→                        # New product or new rep: use TA average for prior FY
+  1008→                        ta_avg_qty, ta_avg_val = ta_avg_per_fy.get((p["therapy_area"], prev_fy), (40, 20000))
+  1009→                        base_qty = int(ta_avg_qty / 4)  # quarterly
+  1010→                        base_val = int(ta_avg_val / 4)
+  1011→                    else:
+  1012→                        base_qty = prev_actual_qty / 4  # convert annual to quarterly
+  1013→                        base_val = prev_actual_val / 4
+  1014→                    stretch = float(r["target_stretch_pct"])
+  1015→                    growth = 1.15
+  1016→                    target_qty = max(10, int(base_qty * growth * stretch))
+  1017→                    target_value = max(1000, int(base_val * growth * stretch))
+  1018→                    # ID: TGT-YYYYQn-REPxxx-PRDCARD01 (compact form)
+  1019→                    rep_compact = r["rep_id"].replace("REP-", "REP")
+  1020→                    prd_compact = p["product_id"].replace("PRD-", "").replace("-", "")
+  1021→                    target_id = f"TGT-{fy}{q}-{rep_compact}-{prd_compact}"
+  1022→                    targets.append({
+  1023→                        "target_id": target_id,
+  1024→                        "rep_id": r["rep_id"],
+  1025→                        "product_id": p["product_id"],
+  1026→                        "fy": fy,
+  1027→                        "quarter": q,
+  1028→                        "target_qty": target_qty,
+  1029→                        "target_value_inr": target_value,
+  1030→                    })
+  1031→
+  1032→    return targets
+  1033→
+  1034→
+  1035→# --------------------------------------------------------------------------- #
+  1036→# Main                                                                          #
+  1037→# --------------------------------------------------------------------------- #
+  1038→def main():
+  1039→    print("Generating reps..."); reps = gen_reps()
+  1040→    print(f"  reps: {len(reps)}")
+  1041→
+  1042→    print("Generating hcps..."); hcps = gen_hcps()
+  1043→    print(f"  hcps: {len(hcps)}")
+  1044→
+  1045→    print("Generating products..."); products = gen_products()
+  1046→    print(f"  products: {len(products)}")
+  1047→
+  1048→    print("Generating visits..."); visits = gen_visits(reps, hcps)
+  1049→    print(f"  visits: {len(visits)}")
+  1050→
+  1051→    print("Generating sales (derived from visits)..."); sales = gen_sales(reps, hcps, products, visits)
+  1052→    print(f"  sales: {len(sales)}")
+  1053→
+  1054→    print("Generating expenses..."); expenses = gen_expenses(reps)
+  1055→    print(f"  expenses: {len(expenses)}")
+  1056→
+  1057→    print("Generating targets..."); targets = gen_targets(reps, products, sales)
+  1058→    print(f"  targets: {len(targets)}")
+  1059→
+  1060→    total = len(reps) + len(hcps) + len(products) + len(visits) + len(sales) + len(expenses) + len(targets)
+  1061→    print(f"\nTotal rows across 7 tables: {total}")
+  1062→
+  1063→    write_csv("reps", reps, [
+  1064→        "rep_id", "first_name", "last_name", "email", "phone", "role", "manager_id",
+  1065→        "zone", "state", "city", "hire_date", "exit_date", "status",
+  1066→        "base_salary_inr", "target_stretch_pct",
+  1067→    ])
+  1068→    write_csv("hcps", hcps, [
+  1069→        "hcp_id", "first_name", "last_name", "specialty", "tier", "decile",
+  1070→        "city", "state", "zone", "hospital", "years_practicing",
+  1071→        "preferred_contact", "npi_like_id",
+  1072→    ])
+  1073→    write_csv("products", products, [
+  1074→        "product_id", "product_name", "molecule", "therapy_area", "launch_date",
+  1075→        "mrp_inr", "pack_size", "is_new_launch", "priority",
+  1076→    ])
+  1077→    write_csv("visits", visits, [
+  1078→        "visit_id", "rep_id", "hcp_id", "visit_date", "visit_type",
+  1079→        "duration_min", "products_detailed", "samples_dropped", "outcome",
+  1080→        "followup_required",
+  1081→    ])
+  1082→    write_csv("sales", sales, [
+  1083→        "invoice_id", "distributor_id", "rep_id", "hcp_id", "product_id",
+  1084→        "qty_packs", "unit_price_inr", "discount_pct", "net_value_inr",
+  1085→        "invoice_date", "channel",
+  1086→    ])
+  1087→    write_csv("expenses", expenses, [
+  1088→        "expense_id", "rep_id", "expense_date", "category", "amount_inr",
+  1089→        "reimbursed", "policy_compliant", "notes",
+  1090→    ])
+  1091→    write_csv("targets", targets, [
+  1092→        "target_id", "rep_id", "product_id", "fy", "quarter",
+  1093→        "target_qty", "target_value_inr",
+  1094→    ])
+  1095→    print("\nAll CSVs written to", DATA_DIR)
+  1096→
+  1097→
+  1098→if __name__ == "__main__":
+  1099→    main()
+  1100→

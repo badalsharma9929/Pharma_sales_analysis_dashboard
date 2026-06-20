@@ -1,0 +1,961 @@
+     1→     1→# Pharma Sales & Field Force Analytics — Build-From-Scratch Project Brief
+     2→     2→
+     3→     3→> **Hand-off specification for an AI build agent**
+     4→     4→> Build a Next.js dashboard from zero, on top of a fabricated (~100K-row) India-pharma dataset, that delivers five analysis modules and eight chart types.
+     5→     5→
+     6→     6→**Tags:** Next.js · TypeScript · Prisma · Recharts · India pharma · fabricated dataset · analytics dashboard
+     7→     7→**Version:** 1.0
+     8→     8→**Date:** 2026-06-20
+     9→     9→
+    10→    10→---
+    11→    11→
+    12→    12→## 0. Executive TL;DR (read this first)
+    13→    13→
+    14→    14→You are building a **single-deployable Next.js 15 dashboard** that visualizes sales-and-field-force performance for a fictional Indian pharmaceutical company called **"MedLife Pharma Pvt. Ltd."**. The dashboard is fed by a **fabricated (fab) dataset of ~100K rows across 7 relational tables** that you must first generate using a Python script, then seed into a Prisma-managed SQLite database.
+    15→    15→
+    16→    16→The dashboard must implement **5 analysis modules** — Sales Performance, Field Force Activity, HCP Targeting, Product & Portfolio Mix, and Forecasting — and render **8 mandatory chart types** — KPI cards, sales trend lines, India geo/region map, rep leaderboard, scatter ROI, funnel/coverage, product pie/treemap, and calendar heatmap.
+    17→    17→
+    18→    18→The project must be runnable end-to-end with three commands: `npm install`, `npm run seed` (which both generates the dataset and seeds the DB), and `npm run dev`. The deliverable is a polished, responsive web dashboard plus a clean repo with a README that explains the build.
+    19→    19→
+    20→    20→**You are allowed to make sensible engineering decisions** (exact chart library minor versions, folder structure within `/app`, color palette within bounds). When you make such a decision, document it in the README under "Agent Decisions". The only hard constraints are: stack (Next.js + Prisma + SQLite), dataset shape (7 tables, ~100K rows, India locale), 5 modules, 8 chart types, RNG seed = 42 for reproducibility.
+    21→    21→
+    22→    22→---
+    23→    23→
+    24→    24→## 1. Project Goals & Success Criteria
+    25→    25→
+    26→    26→### 1.1 Business Problem
+    27→    27→
+    28→    28→Sales leadership at a mid-sized Indian pharmaceutical company currently lacks a single, real-time view of how its field force is performing. Data lives in three disconnected systems: the CRM (which records doctor visits and call details), the ERP (which records invoices to distributors and stockists), and an expense system (which records travel & entertainment claims). Quarterly reviews take two weeks of manual Excel wrangling, and by the time the deck is ready, the data is stale.
+    29→    29→
+    30→    30→The brief asks the agent to simulate this entire ecosystem with a single fabricated dataset, then build a self-serve dashboard that any sales leader can open in a browser to answer five recurring questions: *How are we tracking against target? Are my reps covering the right doctors? Are we over-indexed on one product? Where will next quarter land? Which HCPs are slipping through the cracks?*
+    31→    31→
+    32→    32→### 1.2 Target Users
+    33→    33→
+    34→    34→The dashboard has three primary user personas. The **National Sales Head** opens the Overview page first thing every Monday morning to check last week's attainment and YoY trajectory. The **Regional Manager** drills into their zone filter to see which reps and HCPs are underperforming. The **Sales Operations analyst** uses the Field Force and HCP Targeting pages to plan next quarter's call plan and rep territory reassignment.
+    35→    35→
+    36→    36→### 1.3 Success Criteria
+    37→    37→
+    38→    38→1. The fabricated dataset covers 36 months (April 2023 → March 2026), contains ≥ 100K total rows across 7 tables, and is fully reproducible from a single Python script with `random_state = 42`.
+    39→    39→2. The dashboard runs locally with one command, loads any page in under 2 seconds on a 2020 MacBook Air, and renders cleanly on both 1440p desktop and 1280×800 laptop.
+    40→    40→3. All 5 analysis modules are accessible from the sidebar, and every module page surfaces at least 2 of the 8 mandated chart types.
+    41→    41→4. All 8 chart types appear at least once across the dashboard, with working hover tooltips and responsive resize.
+    42→    42→5. The README explains dataset generation, seeding, dev startup, and every non-obvious decision the agent made.
+    43→    43→
+    44→    44→---
+    45→    45→
+    46→    46→## 2. Tech Stack & Architecture
+    47→    47→
+    48→    48→### 2.1 Stack Snapshot
+    49→    49→
+    50→    50→| Layer | Choice | Why |
+    51→    51→|---|---|---|
+    52→    52→| Framework | Next.js 15 (App Router) | Server Components for data fetching, RSC streaming, file-based routing |
+    53→    53→| Language | TypeScript (strict) | Type safety end-to-end from Prisma → API → component |
+    54→    54→| Styling | Tailwind CSS 4 + shadcn/ui | Utility-first + accessible primitives, no custom CSS framework needed |
+    55→    55→| Charts | Recharts (primary) + react-simple-maps (geo) | Recharts covers 7 of 8 chart types; react-simple-maps for the India choropleth |
+    56→    56→| Database | Prisma ORM + SQLite (file-based) | Zero-infra, schema-first, type-safe client. Switch to Postgres later if needed. |
+    57→    57→| Data generation | Python 3.11 + pandas + numpy + faker | Faker has an `en_IN` locale for Indian names, cities, phone numbers |
+    58→    58→| Date handling | date-fns | Tree-shakeable, immutable |
+    59→    59→| State | URL search params (nuqs) + React server-state | Filters stored in URL so they're shareable and bookmarkable |
+    60→    60→
+    61→    61→### 2.2 Folder Structure
+    62→    62→
+    63→    63→```
+    64→    64→pharma-sales-dashboard/
+    65→    65→├── app/
+    66→    66→│   ├── (dashboard)/
+    67→    67→│   │   ├── layout.tsx           # sidebar + topbar shell
+    68→    68→│   │   ├── page.tsx             # Overview
+    69→    69→│   │   ├── sales/page.tsx
+    70→    70→│   │   ├── field-force/page.tsx
+    71→    71→│   │   ├── hcp-targeting/page.tsx
+    72→    72→│   │   ├── product-mix/page.tsx
+    73→    73→│   │   └── forecast/page.tsx
+    74→    74→│   ├── api/
+    75→    75→│   │   ├── overview/route.ts
+    76→    76→│   │   ├── sales/route.ts
+    77→    77→│   │   ├── field-force/route.ts
+    78→    78→│   │   ├── hcp/route.ts
+    79→    79→│   │   ├── product/route.ts
+    80→    80→│   │   └── forecast/route.ts
+    81→    81→│   └── layout.tsx               # root layout, fonts, providers
+    82→    82→├── components/
+    83→    83→│   ├── ui/                      # shadcn/ui primitives
+    84→    84→│   ├── charts/                  # one file per chart type
+    85→    85→│   ├── filters/                 # GlobalFilters, DateRangePicker
+    86→    86→│   └── layout/                  # Sidebar, Topbar, PageHeader
+    87→    87→├── lib/
+    88→    88→│   ├── db.ts                    # Prisma client singleton
+    89→    89→│   ├── analytics/               # one fn per analysis module
+    90→    90→│   ├── types.ts
+    91→    91→│   └── utils.ts
+    92→    92→├── prisma/
+    93→    93→│   ├── schema.prisma
+    94→    94→│   └── seed.ts                  # loads CSVs from /data
+    95→    95→├── scripts/
+    96→    96→│   └── generate_dataset.py      # writes 7 CSVs to /data
+    97→    97→├── data/                        # generated CSVs (gitignored)
+    98→    98→├── public/
+    99→    99→│   └── india-states.topo.json   # for the geo map
+   100→   100→├── package.json
+   101→   101→├── tsconfig.json
+   102→   102→├── tailwind.config.ts
+   103→   103→├── next.config.ts
+   104→   104→└── README.md
+   105→   105→```
+   106→   106→
+   107→   107→### 2.3 Data Flow
+   108→   108→
+   109→   109→Server Components fetch from Prisma directly (no API needed for first render). API routes exist for two reasons: (a) to power client-side filter changes without losing server cache, and (b) to expose a clean JSON contract if the dashboard is ever embedded elsewhere. Every chart component is a client component (`"use client"`) that takes typed data as props — never fetches its own data.
+   110→   110→
+   111→   111→---
+   112→   112→
+   113→   113→## 3. Fab Dataset — Overview & Conventions
+   114→   114→
+   115→   115→### 3.1 Scope
+   116→   116→
+   117→   117→The dataset simulates **36 months** of operations for MedLife Pharma, a fictional mid-sized Indian pharmaceutical company, covering fiscal years **FY24, FY25, FY26** (Indian fiscal year = April → March). The company has roughly 50 field reps organized into 4 zones, calls on about 3,000 doctors (HCPs) across 12 major Indian cities, and sells 12 products across 4 therapy areas. Total row count across all 7 tables should land between **100K and 120K rows**.
+   118→   118→
+   119→   119→### 3.2 Naming & Format Conventions
+   120→   120→
+   121→   121→| Convention | Rule |
+   122→   122→|---|---|
+   123→   123→| Column names | snake_case, singular (`rep_id`, not `repId` or `reps_id`) |
+   124→   124→| Date format | ISO 8601 string `YYYY-MM-DD` in CSVs, `DateTime` in Prisma |
+   125→   125→| Currency | INR (Indian Rupee), stored as paise integers (1 INR = 100 paise) to avoid float drift — display layer divides by 100 |
+   126→   126→| IDs | String-prefixed codes: `REP-001`, `HCP-0001`, `PRD-CARD-01`, `VIS-20240105-001`, `INV-20240105-001`, `EXP-20240105-001`, `TGT-2024-Q1-REP001-PRDCARD01` |
+   127→   127→| NULL handling | Empty string in CSVs (Prisma maps to `null`) |
+   128→   128→| Booleans | `true`/`false` literal in CSVs |
+   129→   129→| RNG seed | `random_state = 42` everywhere (numpy, faker, pandas) |
+   130→   130→| File names | `reps.csv`, `hcps.csv`, `products.csv`, `visits.csv`, `sales.csv`, `expenses.csv`, `targets.csv` |
+   131→   131→
+   132→   132→### 3.3 Locale Specifics
+   133→   133→
+   134→   134→All names must come from Faker's `en_IN` locale so the dashboard reads naturally to an Indian user: first names like *Aarav*, *Priyanka*, *Vignesh*; last names like *Sharma*, *Iyer*, *Reddy*; cities limited to **Mumbai, Delhi, Bengaluru, Chennai, Kolkata, Hyderabad, Pune, Ahmedabad, Jaipur, Lucknow, Kochi, Bhopal**. Phone numbers in `+91-XXXXXXXXXX` format. States restricted to the 28 Indian states + 8 UTs.
+   135→   135→
+   136→   136→---
+   137→   137→
+   138→   138→## 4. Fab Dataset — Entity Schemas (7 Tables)
+   139→   139→
+   140→   140→### 4.1 `reps` (~50 rows)
+   141→   141→
+   142→   142→| Column | Dtype | Description | Constraints |
+   143→   143→|---|---|---|---|
+   144→   144→| `rep_id` | string | Primary key, format `REP-001`…`REP-050` | unique, not null |
+   145→   145→| `first_name` | string | Rep first name (Faker en_IN) | not null |
+   146→   146→| `last_name` | string | Rep last name | not null |
+   147→   147→| `email` | string | `firstname.lastname@medlife.in` | unique |
+   148→   148→| `phone` | string | `+91-XXXXXXXXXX` | not null |
+   149→   149→| `role` | enum | `Field_Rep` (40), `Area_Manager` (8), `Regional_Manager` (4), `National_Head` (1) — total ~53, rounded to 50 | not null |
+   150→   150→| `manager_id` | string | FK → `reps.rep_id`; null for National Head | nullable |
+   151→   151→| `zone` | enum | `North`, `South`, `East`, `West` | not null |
+   152→   152→| `state` | string | Indian state within the zone | not null |
+   153→   153→| `city` | string | HQ city | not null |
+   154→   154→| `hire_date` | date | When the rep joined (range: 2020-01-01 → 2025-12-31) | not null |
+   155→   155→| `exit_date` | date | When the rep exited, null if still active | nullable |
+   156→   156→| `status` | enum | `Active`, `On_Leave`, `Exited` | not null |
+   157→   157→| `base_salary_inr` | integer | Annual base in INR (Field_Rep: 6-9L, AM: 12-16L, RM: 22-28L, NH: 50-60L) | not null |
+   158→   158→| `target_stretch_pct` | float | Personal stretch multiplier applied to targets (0.9 → 1.2) | not null |
+   159→   159→
+   160→   160→### 4.2 `hcps` (~3,000 rows)
+   161→   161→
+   162→   162→| Column | Dtype | Description | Constraints |
+   163→   163→|---|---|---|---|
+   164→   164→| `hcp_id` | string | Primary key, `HCP-0001`…`HCP-3000` | unique |
+   165→   165→| `first_name` | string | Doctor first name | not null |
+   166→   166→| `last_name` | string | Doctor last name | not null |
+   167→   167→| `specialty` | enum | `Cardiologist`, `Diabetologist`, `Gastroenterologist`, `Pulmonist`, `GP`, `Consultant_Physician` | not null |
+   168→   168→| `tier` | enum | `A` (top 20%, high-prescribers), `B` (mid 50%), `C` (long-tail 30%) | not null |
+   169→   169→| `decile` | int | 1-10 revenue decile, recomputed quarterly (1 = top) | not null |
+   170→   170→| `city` | string | One of the 12 cities | not null |
+   171→   171→| `state` | string | State of the city | not null |
+   172→   172→| `zone` | enum | Derived from state (see Appendix D) | not null |
+   173→   173→| `hospital` | string | Affiliated hospital/clinic name | nullable |
+   174→   174→| `years_practicing` | int | 2 → 40 | not null |
+   175→   175→| `preferred_contact` | enum | `Clinic`, `Hospital`, `Phone`, `WhatsApp` | not null |
+   176→   176→| `npi_like_id` | string | Fictional MCI-style reg number `MCI-XXXXX` | unique |
+   177→   177→
+   178→   178→### 4.3 `products` (12 rows)
+   179→   179→
+   180→   180→| Column | Dtype | Description | Constraints |
+   181→   181→|---|---|---|---|
+   182→   182→| `product_id` | string | Primary key, `PRD-CARD-01`, `PRD-DIAB-02`, etc. | unique |
+   183→   183→| `product_name` | string | Brand name (e.g., `Cardiolex`, `Glucoflex`) | not null |
+   184→   184→| `molecule` | string | Active molecule (e.g., `Atorvastatin`) | not null |
+   185→   185→| `therapy_area` | enum | `Cardio`, `Diabetes`, `GI`, `Respiratory` | not null |
+   186→   186→| `launch_date` | date | Some products launched during the 36-month window | not null |
+   187→   187→| `mrp_inr` | integer | Maximum retail price per pack (₹50 → ₹1,500) | not null |
+   188→   188→| `pack_size` | int | Tablets/capsules per pack (10, 15, 30, 100) | not null |
+   189→   189→| `is_new_launch` | bool | True if launch_date is within the 36-month window | not null |
+   190→   190→| `priority` | enum | `Strategic`, `Growth`, `Maintain`, `Harvest` | not null |
+   191→   191→
+   192→   192→### 4.4 `visits` (~60K rows)
+   193→   193→
+   194→   194→| Column | Dtype | Description | Constraints |
+   195→   195→|---|---|---|---|
+   196→   196→| `visit_id` | string | Primary key, `VIS-YYYYMMDD-NNN` | unique |
+   197→   197→| `rep_id` | string | FK → `reps.rep_id` | not null |
+   198→   198→| `hcp_id` | string | FK → `hcps.hcp_id` | not null |
+   199→   199→| `visit_date` | date | Weekday only (Mon-Sat), excluding Indian holidays | not null |
+   200→   200→| `visit_type` | enum | `F2F`, `Virtual`, `Group_Detailing`, `Conference` | not null |
+   201→   201→| `duration_min` | int | 5 → 60, weighted toward 15-20 | not null |
+   202→   202→| `products_detailed` | string | Comma-separated product_ids (1 → 3 products per visit) | not null |
+   203→   203→| `samples_dropped` | int | 0 → 20 | not null |
+   204→   204→| `outcome` | enum | `Detailed`, `Briefed`, `No_Show`, `Refused` | not null |
+   205→   205→| `followup_required` | bool | True ~25% of the time | not null |
+   206→   206→
+   207→   207→### 4.5 `sales` (~30K rows)
+   208→   208→
+   209→   209→| Column | Dtype | Description | Constraints |
+   210→   210→|---|---|---|---|
+   211→   211→| `invoice_id` | string | Primary key, `INV-YYYYMMDD-NNN` | unique |
+   212→   212→| `distributor_id` | string | `DIST-001`…`DIST-040` | not null |
+   213→   213→| `rep_id` | string | FK → reps (rep who covers that HCP) | not null |
+   214→   214→| `hcp_id` | string | FK → hcps (prescribing HCP) | not null |
+   215→   215→| `product_id` | string | FK → products | not null |
+   216→   216→| `qty_packs` | int | 1 → 200 | not null |
+   217→   217→| `unit_price_inr` | integer | Effective unit price (≤ MRP; ~85% of MRP after distributor margin) | not null |
+   218→   218→| `discount_pct` | float | 0 → 15% | not null |
+   219→   219→| `net_value_inr` | integer | `qty_packs * unit_price_inr * (1 - discount_pct)` | not null |
+   220→   220→| `invoice_date` | date | Aligned to visit_date ± 14 days | not null |
+   221→   221→| `channel` | enum | `Stockist`, `Retail`, `Hospital`, `Institution` | not null |
+   222→   222→
+   223→   223→### 4.6 `expenses` (~10K rows)
+   224→   224→
+   225→   225→| Column | Dtype | Description | Constraints |
+   226→   226→|---|---|---|---|
+   227→   227→| `expense_id` | string | Primary key, `EXP-YYYYMMDD-NNN` | unique |
+   228→   228→| `rep_id` | string | FK → reps | not null |
+   229→   229→| `expense_date` | date | Date expense was incurred | not null |
+   230→   230→| `category` | enum | `Travel`, `Food`, `Lodging`, `Samples`, `Conference`, `Mobile`, `Other` | not null |
+   231→   231→| `amount_inr` | integer | 50 → 5,000 per entry | not null |
+   232→   232→| `reimbursed` | bool | ~90% true | not null |
+   233→   233→| `policy_compliant` | bool | ~95% true | not null |
+   234→   234→| `notes` | string | Short free-text description | nullable |
+   235→   235→
+   236→   236→### 4.7 `targets` (~3,600 rows)
+   237→   237→
+   238→   238→| Column | Dtype | Description | Constraints |
+   239→   239→|---|---|---|---|
+   240→   240→| `target_id` | string | Primary key, `TGT-YYYYQn-REPxxx-PRDxxx` | unique |
+   241→   241→| `rep_id` | string | FK → reps | not null |
+   242→   242→| `product_id` | string | FK → products | not null |
+   243→   243→| `fy` | int | Fiscal year (2024, 2025, 2026) | not null |
+   244→   244→| `quarter` | enum | `Q1`, `Q2`, `Q3`, `Q4` | not null |
+   245→   245→| `target_qty` | int | Quarterly target in packs | not null |
+   246→   246→| `target_value_inr` | integer | Quarterly target in INR | not null |
+   247→   247→
+   248→   248→Computation: 50 reps × 12 products × 12 quarters = 7,200 rows. Adjust to ~3,600 by dropping products outside the rep's therapy-area focus (each rep covers ~6 products).
+   249→   249→
+   250→   250→---
+   251→   251→
+   252→   252→## 5. Fab Dataset — Relationships (ERD)
+   253→   253→
+   254→   254→The dataset is a classic star/snowflake schema with `reps` as the central hub. Below is the textual ERD; implement exactly these relations in Prisma.
+   255→   255→
+   256→   256→| From | To | Cardinality | Via |
+   257→   257→|---|---|---|---|
+   258→   258→| `reps` | `reps` (manager) | 1 : N | `reps.manager_id` self-reference |
+   259→   259→| `reps` | `visits` | 1 : N | `visits.rep_id` |
+   260→   260→| `reps` | `sales` | 1 : N | `sales.rep_id` |
+   261→   261→| `reps` | `expenses` | 1 : N | `expenses.rep_id` |
+   262→   262→| `reps` | `targets` | 1 : N | `targets.rep_id` |
+   263→   263→| `hcps` | `visits` | 1 : N | `visits.hcp_id` |
+   264→   264→| `hcps` | `sales` | 1 : N | `sales.hcp_id` |
+   265→   265→| `products` | `visits` | 1 : N (via junction string) | `visits.products_detailed` (denormalized CSV — parse in app layer) |
+   266→   266→| `products` | `sales` | 1 : N | `sales.product_id` |
+   267→   267→| `products` | `targets` | 1 : N | `targets.product_id` |
+   268→   268→
+   269→   269→The `products_detailed` field is intentionally a CSV string inside `visits` rather than a proper junction table — this keeps the schema lean for a demo project and matches how most pharma CRMs export the field. The app layer must split on `,` and join to `products` as needed.
+   270→   270→
+   271→   271→---
+   272→   272→
+   273→   273→## 6. Fab Dataset — Generation Rules & Distributions
+   274→   274→
+   275→   275→### 6.1 Reps
+   276→   276→
+   277→   277→Generate 50 reps with the hierarchy: 1 National Head → 4 Regional Managers (one per zone) → 8 Area Managers (2 per zone) → ~37 Field Reps (4-5 per area). `hire_date` is uniformly distributed across 2020-01-01 → 2025-12-31, biased toward the middle. Apply **12% annual attrition** — each rep has a 12% chance per year of being marked `Exited` with an `exit_date` somewhere mid-year. Exited reps get replaced by a new rep with `hire_date` = old rep's `exit_date + ~14 days` to maintain coverage.
+   278→   278→
+   279→   279→### 6.2 HCPs
+   280→   280→
+   281→   281→3,000 HCPs, distributed across cities proportional to population (Mumbai ~15%, Delhi ~14%, Bengaluru ~11%, etc.). Tier distribution: **A = 20%, B = 50%, C = 30%**. Specialty correlated with therapy area focus: 30% Cardiologists, 30% Diabetologists, 20% Gastroenterologists, 20% Pulmonists. Decile recomputed each quarter based on cumulative revenue.
+   282→   282→
+   283→   283→### 6.3 Visits
+   284→   284→
+   285→   285→Each active Field Rep executes **8-12 visits per working day** (Mon-Sat). Working days = total days minus Sundays minus Indian national holidays minus state-specific holidays. Visit-to-HCP assignment is biased: Tier-A HCPs get visited ~3× per month, Tier-B ~1.5×/month, Tier-C ~0.5×/month. Visit type mix: 70% F2F, 15% Virtual, 10% Group_Detailing, 5% Conference. Outcome distribution: 60% Detailed, 25% Briefed, 10% No_Show, 5% Refused. Sample drop counts scale with HCP tier (A gets more samples).
+   286→   286→
+   287→   287→### 6.4 Sales
+   288→   288→
+   289→   289→Each Tier-A HCP generates ~2 invoices per month, Tier-B ~1/month, Tier-C ~0.3/month. Invoice value follows a **lognormal distribution** with mean driven by product MRP and HCP tier. Monthly seasonality: peaks in **March (fiscal close)** and **September (festive + half-year close)** at 1.3× baseline; dips in **May (summer slowdown)** at 0.85×. Apply an **8% YoY growth** baseline. New products follow a **6-month linear ramp** from launch date to steady-state. Discounts uniformly 2-12%.
+   290→   290→
+   291→   291→### 6.5 Expenses
+   292→   292→
+   293→   293→Each rep incurs ~5-8 expense entries per week. Travel 40%, Food 25%, Lodging 15%, Samples 10%, Other 10%. Amounts: Travel ₹200-₹2,000, Food ₹100-₹800, Lodging ₹1,500-₹4,000. Policy compliance ~95%; non-compliant flagged.
+   294→   294→
+   295→   295→### 6.6 Targets
+   296→   296→
+   297→   297→Targets are computed **bottom-up from last year's actuals × growth × stretch**: `target_qty = last_year_actual_qty × 1.15 × rep.target_stretch_pct`. For new products, base on therapeutic-area average. Targets stored at quarter granularity per rep per product.
+   298→   298→
+   299→   299→### 6.7 Reproducibility
+   300→   300→
+   301→   301→Set `numpy.random.seed(42)`, `faker.seed_instance(42)`, `random.seed(42)` at the top of the generation script. The same seed must always produce byte-identical CSVs.
+   302→   302→
+   303→   303→---
+   304→   304→
+   305→   305→## 7. Fab Dataset — Sample Rows
+   306→   306→
+   307→   307→### 7.1 `reps.csv`
+   308→   308→```
+   309→   309→rep_id,first_name,last_name,email,phone,role,manager_id,zone,state,city,hire_date,exit_date,status,base_salary_inr,target_stretch_pct
+   310→   310→REP-001,Aarav,Sharma,aarav.sharma@medlife.in,+91-9820012345,National_Head,,North,Delhi,Delhi,2020-04-01,,Active,5500000,1.20
+   311→   311→REP-002,Priyanka,Iyer,priyanka.iyer@medlife.in,+91-9840123456,Regional_Manager,REP-001,South,Tamil Nadu,Chennai,2020-06-15,,Active,2500000,1.10
+   312→   312→REP-013,Vignesh,Reddy,vignesh.reddy@medlife.in,+91-9003012345,Field_Rep,REP-007,South,Telangana,Hyderabad,2022-03-10,2025-08-15,Exited,720000,1.05
+   313→   313→```
+   314→   314→
+   315→   315→### 7.2 `hcps.csv`
+   316→   316→```
+   317→   317→hcp_id,first_name,last_name,specialty,tier,decile,city,state,zone,hospital,years_practicing,preferred_contact,npi_like_id
+   318→   318→HCP-0001,Anil,Kumar,Cardiologist,A,1,Mumbai,Maharashtra,West,Lilavati Hospital,18,Clinic,MCI-10231
+   319→   319→HCP-0002,Meena,Nair,Diabetologist,B,5,Kochi,Kerala,South,Aster Medcity,12,Hospital,MCI-10552
+   320→   320→HCP-0003,Rajesh,Gupta,GP,C,9,Jaipur,Rajasthan,North,Gupta Clinic,7,Phone,MCI-10893
+   321→   321→```
+   322→   322→
+   323→   323→### 7.3 `products.csv`
+   324→   324→```
+   325→   325→product_id,product_name,molecule,therapy_area,launch_date,mrp_inr,pack_size,is_new_launch,priority
+   326→   326→PRD-CARD-01,Cardiolex,Atorvastatin,Cardio,2018-04-01,350,10,false,Maintain
+   327→   327→PRD-DIAB-02,Glucoflex,Metformin,Diabetes,2018-06-01,120,15,false,Maintain
+   328→   328→PRD-CARD-03,Vasoclear,Rosuvastatin,Cardio,2024-09-15,680,10,true,Strategic
+   329→   329→```
+   330→   330→
+   331→   331→### 7.4 `visits.csv`
+   332→   332→```
+   333→   333→visit_id,rep_id,hcp_id,visit_date,visit_type,duration_min,products_detailed,samples_dropped,outcome,followup_required
+   334→   334→VIS-20240105-001,REP-013,HCP-0001,2024-01-05,F2F,18,PRD-CARD-01,5,Detailing,true
+   335→   335→VIS-20240105-002,REP-013,HCP-0003,2024-01-05,F2F,12,PRD-CARD-01|PRD-DIAB-02,2,Briefed,false
+   336→   336→```
+   337→   337→
+   338→   338→### 7.5 `sales.csv`
+   339→   339→```
+   340→   340→invoice_id,distributor_id,rep_id,hcp_id,product_id,qty_packs,unit_price_inr,discount_pct,net_value_inr,invoice_date,channel
+   341→   341→INV-20240108-001,DIST-007,REP-013,HCP-0001,PRD-CARD-01,12,297,5.0,338580,2024-01-08,Hospital
+   342→   342→INV-20240109-002,DIST-007,REP-013,HCP-0001,PRD-DIAB-02,8,102,8.0,75168,2024-01-09,Stockist
+   343→   343→```
+   344→   344→
+   345→   345→### 7.6 `expenses.csv`
+   346→   346→```
+   347→   347→expense_id,rep_id,expense_date,category,amount_inr,reimbursed,policy_compliant,notes
+   348→   348→EXP-20240105-001,REP-013,2024-01-05,Travel,650,true,true,Cab to Lilavati Hospital
+   349→   349→EXP-20240105-002,REP-013,2024-01-05,Food,340,true,true,Team lunch with HCP-0001
+   350→   350→EXP-20240106-003,REP-013,2024-01-06,Lodging,3200,true,false,5-star hotel — policy max 2500
+   351→   351→```
+   352→   352→
+   353→   353→### 7.7 `targets.csv`
+   354→   354→```
+   355→   355→target_id,rep_id,product_id,fy,quarter,target_qty,target_value_inr
+   356→   356→TGT-2024-Q1-REP013-PRDCARD01,REP-013,PRD-CARD-01,2024,Q1,120,3564000
+   357→   357→TGT-2024-Q1-REP013-PRDDIAB02,REP-013,PRD-DIAB-02,2024,Q1,80,912000
+   358→   358→```
+   359→   359→
+   360→   360→---
+   361→   361→
+   362→   362→## 8. Analysis Module 1 — Sales Performance
+   363→   363→
+   364→   364→### 8.1 Metrics to Compute
+   365→   365→
+   366→   366→| Metric | Formula | Granularity |
+   367→   367→|---|---|---|
+   368→   368→| Total Sales (₹ Cr) | `SUM(net_value_inr) / 1e7` | Daily / Monthly / Quarterly |
+   369→   369→| Attainment % | `SUM(actual) / SUM(target) × 100` | Per rep, per zone, per product |
+   370→   370→| YoY Growth % | `(current_period - prior_year_period) / prior_year_period × 100` | Monthly |
+   371→   371→| MoM Growth % | `(current_month - prior_month) / prior_month × 100` | Monthly |
+   372→   372→| Sales by Zone | `SUM(net_value_inr) GROUP BY zone` | Monthly |
+   373→   373→| Sales by Therapy Area | `SUM(net_value_inr) GROUP BY products.therapy_area` | Monthly |
+   374→   374→| Top 10 Reps by Attainment | `ORDER BY attainment_pct DESC LIMIT 10` | Quarterly |
+   375→   375→| Bottom 10 Reps by Attainment | `ORDER BY attainment_pct ASC LIMIT 10` | Quarterly |
+   376→   376→| Top 10 HCPs by Revenue | `SUM(net_value_inr) GROUP BY hcp_id ORDER BY DESC LIMIT 10` | Quarterly |
+   377→   377→| District/State Heat | `SUM(net_value_inr) GROUP BY state` | Monthly |
+   378→   378→
+   379→   379→### 8.2 Business Logic Notes
+   380→   380→
+   381→   381→Attainment % must be computed against **same-period targets**, not annual targets. A rep who hit ₹40L of a ₹50L Q1 target shows 80% attainment, regardless of full-year target. YoY growth for new products (launched within last 12 months) should display as `N/A` rather than `infinity` — handle this in the API layer.
+   382→   382→
+   383→   383→---
+   384→   384→
+   385→   385→## 9. Analysis Module 2 — Field Force Activity
+   386→   386→
+   387→   387→### 9.1 Metrics to Compute
+   388→   388→
+   389→   389→| Metric | Formula |
+   390→   390→|---|---|
+   391→   391→| Total Visits | `COUNT(*) FROM visits WHERE date BETWEEN @start AND @end` |
+   392→   392→| Avg Visits / Rep / Day | `total_visits / (active_reps × working_days)` |
+   393→   393→| Coverage % | `DISTINCT hcp_id visited / total HCPs targeted × 100` |
+   394→   394→| Reach & Frequency | `AVG(visits_per_hcp_per_month)` |
+   395→   395→| MCE Compliance % | `mandatory_calls_executed / mandatory_calls_planned × 100` (mandatory = Tier-A HCPs, min 2 calls/month) |
+   396→   396→| Samples Distributed | `SUM(samples_dropped)` |
+   397→   397→| Visit Type Mix | `COUNT(*) GROUP BY visit_type` |
+   398→   398→| Outcome Distribution | `COUNT(*) GROUP BY outcome` |
+   399→   399→
+   400→   400→### 9.2 Calendar Heatmap
+   401→   401→
+   402→   402→Aggregate visits by date for the last 12 months. Render as a GitHub-style calendar heatmap (week on Y, day-of-week on X, color = visit count). This is the signature chart on the Field Force page.
+   403→   403→
+   404→   404→---
+   405→   405→
+   406→   406→## 10. Analysis Module 3 — HCP Targeting & Segmentation
+   407→   407→
+   408→   408→### 10.1 Segmentation Logic
+   409→   409→
+   410→   410→- **Tier** (A/B/C) is set at generation time based on revenue potential.
+   411→   411→- **Decile** (1-10) is recomputed quarterly: rank all HCPs by 90-day trailing revenue, bucket into deciles.
+   412→   412→- **Segment label** is derived from tier × recency: `Champion` (Tier A, visited ≤30 days), `Loyal` (Tier A, visited 30-90 days), `At Risk` (Tier A, visited >90 days), `Emerging` (Tier B, growing), `Slipping` (Tier B, declining), `Long-tail` (Tier C).
+   413→   413→
+   414→   414→### 10.2 Metrics
+   415→   415→
+   416→   416→| Metric | Formula |
+   417→   417→|---|---|
+   418→   418→| Tier-wise Coverage % | `DISTINCT hcp_id visited in tier / total in tier × 100` |
+   419→   419→| Decile-wise Revenue Contribution | `SUM(revenue) GROUP BY decile / total × 100` |
+   420→   420→| Untapped High-Value HCPs | Tier-A HCPs with 0 visits in last 90 days |
+   421→   421→| ROI per HCP | `SUM(revenue from HCP) / COUNT(visits to HCP)` |
+   422→   422→| HCP Churn (QoQ) | HCPs whose revenue dropped >50% QoQ |
+   423→   423→
+   424→   424→---
+   425→   425→
+   426→   426→## 11. Analysis Module 4 — Product & Portfolio Mix
+   427→   427→
+   428→   428→### 11.1 Metrics
+   429→   429→
+   430→   430→| Metric | Formula |
+   431→   431→|---|---|
+   432→   432→| Product Contribution % | `product_revenue / total_revenue × 100` |
+   433→   433→| SKU Mix within Therapy Area | `SUM(revenue) GROUP BY SKU within therapy_area` |
+   434→   434→| New Product Adoption Curve | Monthly revenue of `is_new_launch=true` products since launch_date |
+   435→   435→| Top 3 Growing Products | `MAX(MoM growth %) LIMIT 3` |
+   436→   436→| Bottom 3 Declining Products | `MIN(MoM growth %) LIMIT 3` |
+   437→   437→| Cannibalization Indicator | When new product launches, check if revenue of existing same-therapy product drops >15% in following 60 days |
+   438→   438→
+   439→   439→### 11.2 Visualization
+   440→   440→
+   441→   441→Treemap showing product revenue contribution nested by therapy area → product → SKU. Pie chart for therapy-area split. Adoption curve as a small-multiples line chart.
+   442→   442→
+   443→   443→---
+   444→   444→
+   445→   445→## 12. Analysis Module 5 — Forecasting
+   446→   446→
+   447→   447→### 12.1 Approach
+   448→   448→
+   449→   449→Use **statsmodels Holt-Winters Exponential Smoothing** (trend + seasonality, 12-month seasonality) on monthly revenue per region and per therapy area. Backtest on the last 3 months: train on months 1-33, predict months 34-36, compute **MAPE**. Then retrain on all 36 months and forecast the next 3 months with 80% / 95% confidence intervals.
+   450→   450→
+   451→   451→### 12.2 Output
+   452→   452→
+   453→   453→| Field | Description |
+   454→   454→|---|---|
+   455→   455→| `forecast_month` | Next 3 months |
+   456→   456→| `forecast_value_inr` | Point forecast |
+   457→   457→| `ci_80_lower`, `ci_80_upper` | 80% confidence interval |
+   458→   458→| `ci_95_lower`, `ci_95_upper` | 95% confidence interval |
+   459→   459→| `mape_pct` | Mean Absolute Percentage Error on backtest |
+   460→   460→
+   461→   461→### 12.3 Visualization
+   462→   462→
+   463→   463→Single line chart per region with three segments: actual (solid), backtest prediction (dashed), forecast (dotted with shaded CI band).
+   464→   464→
+   465→   465→---
+   466→   466→
+   467→   467→## 13. Visualization Specs — 8 Chart Types
+   468→   468→
+   469→   469→| # | Chart | Library | Data Shape | Color | Interaction |
+   470→   470→|---|---|---|---|---|---|
+   471→   471→| 1 | KPI Cards | Custom shadcn Card | `{ label, value, delta, deltaPct, sparkline: number[] }` | accent green/red for delta | hover to reveal sparkline tooltip |
+   472→   472→| 2 | Sales Trend Lines | Recharts `<LineChart>` | `{ month: string, actual: number, target: number, priorYear: number }[]` | actual = #0EA5E9, target = #94A3B8 dashed, priorYear = #CBD5E1 | hover crosshair shows all 3 values |
+   473→   473→| 3 | India Geo Map | react-simple-maps + topojson | `{ state: string, value: number }[]` | 5-step sequential blue scale | hover shows tooltip with state + value |
+   474→   474→| 4 | Rep Leaderboard | Recharts `<BarChart>` horizontal | `{ repName: string, attainmentPct: number }[]` | green ≥100%, amber 80-100%, red <80% | click to drill into rep detail (toast) |
+   475→   475→| 5 | Scatter ROI | Recharts `<ScatterChart>` | `{ repName, expense, revenue }[]` | quadrant-coded | hover shows rep name + ROI ratio |
+   476→   476→| 6 | Funnel Coverage | Recharts `<Funnel>` or custom | `[{ stage: 'Targeted', value }, { stage: 'Visited', value }, { stage: 'Detailed', value }, { stage: 'Bought', value }]` | gradient blue → green | hover reveals absolute + % of prior stage |
+   477→   477→| 7 | Product Pie + Treemap | Recharts `<PieChart>` + `<Treemap>` | therapy-area pie + nested product treemap | therapy-area-coded palette | click pie slice filters treemap |
+   478→   478→| 8 | Calendar Heatmap | `react-calendar-heatmap` or custom SVG | `{ date: string, count: int }[]` for last 12 months | 5-step green scale | hover shows date + visit count |
+   479→   479→
+   480→   480→All charts must:
+   481→   481→- Render inside a shadcn Card with a title and subtitle
+   482→   482→- Include a legend where multiple series exist
+   483→   483→- Use `constrained_layout`-equivalent spacing (Tailwind `gap-4`, `p-4`)
+   484→   484→- Re-render on filter change without remounting (key by filter hash)
+   485→   485→- Be responsive — min-width 280px, max-width container
+   486→   486→
+   487→   487→---
+   488→   488→
+   489→   489→## 14. Dashboard Page Layouts
+   490→   490→
+   491→   491→### 14.1 Overview Page (Home)
+   492→   492→
+   493→   493→Top: 4 KPI cards (Total Sales ₹Cr, Attainment %, Active Reps, Avg Calls/Day). Middle row: Sales Trend Line (full width, 24-month window). Bottom row: India Geo Map (left, 2/3 width) + Rep Leaderboard (right, 1/3 width, top 10).
+   494→   494→
+   495→   495→### 14.2 Sales Performance Page
+   496→   496→
+   497→   497→Top: KPI strip (Total Sales, Attainment, YoY, MoM). Middle: Sales Trend Line with target overlay + prior-year overlay, filterable by zone/therapy area. Bottom: Attainment bar chart (top/bottom 10 reps) + State-wise revenue table (sortable).
+   498→   498→
+   499→   499→### 14.3 Field Force Page
+   500→   500→
+   501→   501→Top: KPI strip (Total Visits, Coverage %, MCE Compliance, Samples). Middle: Calendar Heatmap (last 12 months, full width). Bottom: Visit Type Mix (pie) + Visits per Rep (horizontal bar, top/bottom 10) + Outcome distribution (donut).
+   502→   502→
+   503→   503→### 14.4 HCP Targeting Page
+   504→   504→
+   505→   505→Top: KPI strip (Total HCPs, Tier-A Coverage, Untapped High-Value, Avg ROI/HCP). Middle: Tier-wise coverage bar + Decile-wise revenue contribution stacked bar. Bottom: Untapped HCPs table (Tier-A, 0 visits in 90 days) + HCP churn table.
+   506→   506→
+   507→   507→### 14.5 Product Mix Page
+   508→   508→
+   509→   509→Top: KPI strip (Total Products, New Launches, Top Growing, Top Declining). Middle: Therapy-area Pie + Product Treemap (side-by-side). Bottom: New-product adoption small-multiples + Cannibalization table.
+   510→   510→
+   511→   511→### 14.6 Forecast Page
+   512→   512→
+   513→   513→Top: KPI strip (Next-Quarter Forecast, MAPE, Confidence). Middle: Actual vs Forecast line chart per region (region selector). Bottom: Per-product forecast table with confidence intervals.
+   514→   514→
+   515→   515→### 14.7 Global Filters (Topbar)
+   516→   516→
+   517→   517→A sticky topbar with: Date Range Picker (default = last 12 months), Zone multi-select (All/N/S/E/W), Therapy Area multi-select, Rep Level multi-select (Field_Rep/AM/RM). Filters propagate to all pages via URL search params.
+   518→   518→
+   519→   519→---
+   520→   520→
+   521→   521→## 15. Build Order — 6-Phase Milestones
+   522→   522→
+   523→   523→### Phase 1 — Scaffold (Day 1)
+   524→   524→
+   525→   525→`npx create-next-app@latest pharma-sales-dashboard --typescript --tailwind --app --eslint`. Install shadcn/ui, Recharts, react-simple-maps, Prisma, faker (Python side). Set up `lib/db.ts`, `prisma/schema.prisma`. Acceptance: `npm run dev` boots to a blank page with no errors.
+   526→   526→
+   527→   527→### Phase 2 — Dataset Generation (Day 1-2)
+   528→   528→
+   529→   529→Write `scripts/generate_dataset.py` per Section 6 rules. Output 7 CSVs to `/data`. Acceptance: total row count between 100K-120K, all FKs resolve, RNG seed reproducible, Indian names + cities.
+   530→   530→
+   531→   531→### Phase 3 — Prisma Seed (Day 2)
+   532→   532→
+   533→   533→Map all 7 tables in `schema.prisma`. Write `prisma/seed.ts` that streams CSVs into SQLite via Prisma's `createMany`. Acceptance: `npx prisma db push && npm run seed` populates DB; `npx prisma studio` shows all tables with realistic data.
+   534→   534→
+   535→   535→### Phase 4 — API Routes (Day 3)
+   536→   536→
+   537→   537→Build 6 route handlers: `/api/overview`, `/api/sales`, `/api/field-force`, `/api/hcp`, `/api/product`, `/api/forecast`. Each accepts filter query params and returns typed JSON. Acceptance: every route returns 200 with non-empty payload when called with default filters.
+   538→   538→
+   539→   539→### Phase 5 — Layout Shell + Filters (Day 3-4)
+   540→   540→
+   541→   541→Build sidebar (6 nav links + brand), topbar with global filters, dashboard layout wrapper. Filters stored in URL via `nuqs`. Acceptance: changing a filter updates the URL and triggers data refetch on all pages.
+   542→   542→
+   543→   543→### Phase 6 — Build Each Page (Day 4-6)
+   544→   544→
+   545→   545→One page per day, in this order: Overview → Sales → Field Force → HCP → Product → Forecast. For each: implement KPI strip first, then 2-3 charts, then tables. Acceptance: all 8 chart types appear at least once; every page loads in <2s.
+   546→   546→
+   547→   547→### Phase 7 — Polish + README (Day 6-7)
+   548→   548→
+   549→   549→Add empty-state components, loading skeletons, error boundaries. Write README with: architecture overview, dataset generation steps, dev startup, agent decisions log, known limitations. Acceptance: a fresh clone runs end-to-end with three commands.
+   550→   550→
+   551→   551→---
+   552→   552→
+   553→   553→## 16. Acceptance Criteria / Definition of Done
+   554→   554→
+   555→   555→The project is "done" when **all 20 items** below are true:
+   556→   556→
+   557→   557→1. ✅ `npm install` completes with zero errors on Node 20+
+   558→   558→2. ✅ `npm run seed` generates CSVs AND seeds DB in one command
+   559→   559→3. ✅ `npm run dev` boots to a working Overview page
+   560→   560→4. ✅ Dataset has ≥ 100K rows across 7 tables
+   561→   561→5. ✅ All FK relationships enforced (no orphan rows)
+   562→   562→6. ✅ RNG seed 42 produces byte-identical CSVs on re-run
+   563→   563→7. ✅ Every page loads in <2s on localhost
+   564→   564→8. ✅ All 8 chart types render on at least one page
+   565→   565→9. ✅ Every chart has a working hover tooltip
+   566→   566→10. ✅ Global filters affect every page
+   567→   567→11. ✅ All 5 analysis modules are reachable from sidebar
+   568→   568→12. ✅ Forecast endpoint returns MAPE and CI bounds
+   569→   569→13. ✅ Mobile responsive at 375px width (chart cards stack vertically)
+   570→   570→14. ✅ No TypeScript errors (`npm run build` passes)
+   571→   571→15. ✅ No console errors on any page
+   572→   572→16. ✅ README has run instructions + agent decisions log
+   573→   573→17. ✅ Prisma schema matches Section 5 ERD exactly
+   574→   574→18. ✅ Currency displays as ₹XX.XX Cr / ₹XX.XX L (Indian formatting)
+   575→   575→19. ✅ Dates display in DD-MMM-YYYY Indian format
+   576→   576→20. ✅ Loading skeletons + empty states on every chart
+   577→   577→
+   578→   578→---
+   579→   579→
+   580→   580→## 17. Appendix A — Sample Prisma Schema
+   581→   581→
+   582→   582→```prisma
+   583→   583→// prisma/schema.prisma
+   584→   584→generator client {
+   585→   585→  provider = "prisma-client-js"
+   586→   586→}
+   587→   587→
+   588→   588→datasource db {
+   589→   589→  provider = "sqlite"
+   590→   590→  url      = env("DATABASE_URL") // "file:./dev.db"
+   591→   591→}
+   592→   592→
+   593→   593→model Rep {
+   594→   594→  repId             String   @id @map("rep_id")
+   595→   595→  firstName         String   @map("first_name")
+   596→   596→  lastName          String   @map("last_name")
+   597→   597→  email             String   @unique
+   598→   598→  phone             String
+   599→   599→  role              String
+   600→   600→  managerId         String?  @map("manager_id")
+   601→   601→  manager           Rep?     @relation("RepHierarchy", fields: [managerId], references: [repId])
+   602→   602→  reports           Rep[]    @relation("RepHierarchy")
+   603→   603→  zone              String
+   604→   604→  state             String
+   605→   605→  city              String
+   606→   606→  hireDate          DateTime @map("hire_date")
+   607→   607→  exitDate          DateTime? @map("exit_date")
+   608→   608→  status            String
+   609→   609→  baseSalaryInr     Int      @map("base_salary_inr")
+   610→   610→  targetStretchPct  Float    @map("target_stretch_pct")
+   611→   611→  visits            Visit[]
+   612→   612→  sales             Sale[]
+   613→   613→  expenses          Expense[]
+   614→   614→  targets           Target[]
+   615→   615→
+   616→   616→  @@map("reps")
+   617→   617→}
+   618→   618→
+   619→   619→model Hcp {
+   620→   620→  hcpId            String   @id @map("hcp_id")
+   621→   621→  firstName        String   @map("first_name")
+   622→   622→  lastName         String   @map("last_name")
+   623→   623→  specialty        String
+   624→   624→  tier             String
+   625→   625→  decile           Int
+   626→   626→  city             String
+   627→   627→  state            String
+   628→   628→  zone             String
+   629→   629→  hospital         String?
+   630→   630→  yearsPracticing  Int      @map("years_practicing")
+   631→   631→  preferredContact String   @map("preferred_contact")
+   632→   632→  npiLikeId        String   @unique @map("npi_like_id")
+   633→   633→  visits           Visit[]
+   634→   634→  sales            Sale[]
+   635→   635→
+   636→   636→  @@map("hcps")
+   637→   637→}
+   638→   638→
+   639→   639→model Product {
+   640→   640→  productId     String   @id @map("product_id")
+   641→   641→  productName   String   @map("product_name")
+   642→   642→  molecule      String
+   643→   643→  therapyArea   String   @map("therapy_area")
+   644→   644→  launchDate    DateTime @map("launch_date")
+   645→   645→  mrpInr        Int      @map("mrp_inr")
+   646→   646→  packSize      Int      @map("pack_size")
+   647→   647→  isNewLaunch   Boolean  @map("is_new_launch")
+   648→   648→  priority      String
+   649→   649→  sales         Sale[]
+   650→   650→  targets       Target[]
+   651→   651→
+   652→   652→  @@map("products")
+   653→   653→}
+   654→   654→
+   655→   655→model Visit {
+   656→   656→  visitId           String   @id @map("visit_id")
+   657→   657→  repId             String   @map("rep_id")
+   658→   658→  rep               Rep      @relation(fields: [repId], references: [repId])
+   659→   659→  hcpId             String   @map("hcp_id")
+   660→   660→  hcp               Hcp      @relation(fields: [hcpId], references: [hcpId])
+   661→   661→  visitDate         DateTime @map("visit_date")
+   662→   662→  visitType         String   @map("visit_type")
+   663→   663→  durationMin       Int      @map("duration_min")
+   664→   664→  productsDetailed  String   @map("products_detailed")
+   665→   665→  samplesDropped    Int      @map("samples_dropped")
+   666→   666→  outcome           String
+   667→   667→  followupRequired  Boolean  @map("followup_required")
+   668→   668→
+   669→   669→  @@map("visits")
+   670→   670→}
+   671→   671→
+   672→   672→model Sale {
+   673→   673→  invoiceId     String   @id @map("invoice_id")
+   674→   674→  distributorId String   @map("distributor_id")
+   675→   675→  repId         String   @map("rep_id")
+   676→   676→  rep           Rep      @relation(fields: [repId], references: [repId])
+   677→   677→  hcpId         String   @map("hcp_id")
+   678→   678→  hcp           Hcp      @relation(fields: [hcpId], references: [hcpId])
+   679→   679→  productId     String   @map("product_id")
+   680→   680→  product       Product  @relation(fields: [productId], references: [productId])
+   681→   681→  qtyPacks      Int      @map("qty_packs")
+   682→   682→  unitPriceInr  Int      @map("unit_price_inr")
+   683→   683→  discountPct   Float    @map("discount_pct")
+   684→   684→  netValueInr   Int      @map("net_value_inr")
+   685→   685→  invoiceDate   DateTime @map("invoice_date")
+   686→   686→  channel       String
+   687→   687→
+   688→   688→  @@map("sales")
+   689→   689→}
+   690→   690→
+   691→   691→model Expense {
+   692→   692→  expenseId        String   @id @map("expense_id")
+   693→   693→  repId            String   @map("rep_id")
+   694→   694→  rep              Rep      @relation(fields: [repId], references: [repId])
+   695→   695→  expenseDate      DateTime @map("expense_date")
+   696→   696→  category         String
+   697→   697→  amountInr        Int      @map("amount_inr")
+   698→   698→  reimbursed       Boolean
+   699→   699→  policyCompliant  Boolean  @map("policy_compliant")
+   700→   700→  notes            String?
+   701→   701→
+   702→   702→  @@map("expenses")
+   703→   703→}
+   704→   704→
+   705→   705→model Target {
+   706→   706→  targetId         String  @id @map("target_id")
+   707→   707→  repId            String  @map("rep_id")
+   708→   708→  rep              Rep     @relation(fields: [repId], references: [repId])
+   709→   709→  productId        String  @map("product_id")
+   710→   710→  product          Product @relation(fields: [productId], references: [productId])
+   711→   711→  fy               Int
+   712→   712→  quarter          String
+   713→   713→  targetQty        Int     @map("target_qty")
+   714→   714→  targetValueInr   Int     @map("target_value_inr")
+   715→   715→
+   716→   716→  @@map("targets")
+   717→   717→}
+   718→   718→```
+   719→   719→
+   720→   720→---
+   721→   721→
+   722→   722→## 18. Appendix B — Sample Data Generation Script (Python)
+   723→   723→
+   724→   724→```python
+   725→   725→# scripts/generate_dataset.py
+   726→   726→"""
+   727→   727→Generates the 7-table fab dataset for MedLife Pharma.
+   728→   728→Output: /data/{reps,hcps,products,visits,sales,expenses,targets}.csv
+   729→   729→Run: python scripts/generate_dataset.py
+   730→   730→"""
+   731→   731→import os
+   732→   732→import random
+   733→   733→from datetime import date, timedelta
+   734→   734→import numpy as np
+   735→   735→import pandas as pd
+   736→   736→from faker import Faker
+   737→   737→
+   738→   738→OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+   739→   739→os.makedirs(OUT_DIR, exist_ok=True)
+   740→   740→
+   741→   741→# Reproducibility
+   742→   742→SEED = 42
+   743→   743→random.seed(SEED)
+   744→   744→np.random.seed(SEED)
+   745→   745→fake = Faker("en_IN")
+   746→   746→Faker.seed(SEED)
+   747→   747→
+   748→   748→CITIES = {
+   749→   749→    "Mumbai": ("Maharashtra", "West"),
+   750→   750→    "Delhi": ("Delhi", "North"),
+   751→   751→    "Bengaluru": ("Karnataka", "South"),
+   752→   752→    "Chennai": ("Tamil Nadu", "South"),
+   753→   753→    "Kolkata": ("West Bengal", "East"),
+   754→   754→    "Hyderabad": ("Telangana", "South"),
+   755→   755→    "Pune": ("Maharashtra", "West"),
+   756→   756→    "Ahmedabad": ("Gujarat", "West"),
+   757→   757→    "Jaipur": ("Rajasthan", "North"),
+   758→   758→    "Lucknow": ("Uttar Pradesh", "North"),
+   759→   759→    "Kochi": ("Kerala", "South"),
+   760→   760→    "Bhopal": ("Madhya Pradesh", "West"),
+   761→   761→}
+   762→   762→
+   763→   763→START_DATE = date(2023, 4, 1)
+   764→   764→END_DATE = date(2026, 3, 31)
+   765→   765→
+   766→   766→def daterange(start, end):
+   767→   767→    d = start
+   768→   768→    while d <= end:
+   769→   769→        yield d
+   770→   770→        d += timedelta(days=1)
+   771→   771→
+   772→   772→def is_working_day(d):
+   773→   773→    return d.weekday() < 6  # Mon-Sat
+   774→   774→
+   775→   775→# --- 1. REPS ---
+   776→   776→def gen_reps():
+   777→   777→    # 1 National Head, 4 RMs, 8 AMs, ~37 Field Reps
+   778→   778→    reps = []
+   779→   779→    # ... full logic: hierarchy, hire_date, attrition, exit_date, replacements
+   780→   780→    return pd.DataFrame(reps)
+   781→   781→
+   782→   782→# --- 2. HCPS ---
+   783→   783→def gen_hcps():
+   784→   784→    hcps = []
+   785→   785→    # ... 3000 HCPs, tier distribution A=20/B=50/C=30, city weighted by population
+   786→   786→    return pd.DataFrame(hcps)
+   787→   787→
+   788→   788→# --- 3. PRODUCTS ---
+   789→   789→PRODUCTS = [
+   790→   790→    # Cardio
+   791→   791→    ("PRD-CARD-01", "Cardiolex", "Atorvastatin", "Cardio", date(2018,4,1), 350, 10, False, "Maintain"),
+   792→   792→    ("PRD-CARD-03", "Vasoclear", "Rosuvastatin", "Cardio", date(2024,9,15), 680, 10, True, "Strategic"),
+   793→   793→    # Diabetes
+   794→   794→    ("PRD-DIAB-02", "Glucoflex", "Metformin", "Diabetes", date(2018,6,1), 120, 15, False, "Maintain"),
+   795→   795→    # ... 9 more products across 4 therapy areas
+   796→   796→]
+   797→   797→
+   798→   798→# --- 4. VISITS ---
+   799→   799→def gen_visits(reps_df, hcps_df):
+   800→   800→    visits = []
+   801→   801→    for d in daterange(START_DATE, END_DATE):
+   802→   802→        if not is_working_day(d):
+   803→   803→            continue
+   804→   804→        active_reps = reps_df[(reps_df.status == "Active")].rep_id.tolist()
+   805→   805→        for rep_id in active_reps:
+   806→   806→            n_visits = random.randint(8, 12)
+   807→   807→            for _ in range(n_visits):
+   808→   808→                # Bias HCP selection by tier
+   809→   809→                # ... visit generation logic
+   810→   810→                pass
+   811→   811→    return pd.DataFrame(visits)
+   812→   812→
+   813→   813→# --- 5. SALES ---
+   814→   814→def gen_sales(reps_df, hcps_df, products_df):
+   815→   815→    # 2 invoices/month for Tier A, 1 for B, 0.3 for C
+   816→   816→    # Apply seasonality: March & Sep = 1.3x, May = 0.85x
+   817→   817→    # Apply 8% YoY growth
+   818→   818→    # New products: 6-month linear ramp
+   819→   819→    pass
+   820→   820→
+   821→   821→# --- 6. EXPENSES ---
+   822→   822→def gen_expenses(reps_df):
+   823→   823→    # 5-8 entries per rep per week
+   824→   824→    pass
+   825→   825→
+   826→   826→# --- 7. TARGETS ---
+   827→   827→def gen_targets(reps_df, products_df, sales_df):
+   828→   828→    # target = last_year_actual × 1.15 × rep.target_stretch_pct
+   829→   829→    pass
+   830→   830→
+   831→   831→if __name__ == "__main__":
+   832→   832→    print("Generating reps..."); reps = gen_reps()
+   833→   833→    print("Generating hcps..."); hcps = gen_hcps()
+   834→   834→    print("Generating products..."); products = pd.DataFrame(PRODUCTS, columns=[...])
+   835→   835→    print("Generating visits..."); visits = gen_visits(reps, hcps)
+   836→   836→    print("Generating sales..."); sales = gen_sales(reps, hcps, products)
+   837→   837→    print("Generating expenses..."); expenses = gen_expenses(reps)
+   838→   838→    print("Generating targets..."); targets = gen_targets(reps, products, sales)
+   839→   839→
+   840→   840→    for name, df in [("reps",reps),("hcps",hcps),("products",products),
+   841→   841→                     ("visits",visits),("sales",sales),("expenses",expenses),
+   842→   842→                     ("targets",targets)]:
+   843→   843→        df.to_csv(f"{OUT_DIR}/{name}.csv", index=False)
+   844→   844→        print(f"  {name}: {len(df)} rows")
+   845→   845→```
+   846→   846→
+   847→   847→(Fill in the body of each `gen_*` function per the rules in Section 6. The skeleton above shows the structure and the reproducibility pattern.)
+   848→   848→
+   849→   849→---
+   850→   850→
+   851→   851→## 19. Appendix C — Sample Chart Component (Rep Leaderboard)
+   852→   852→
+   853→   853→```tsx
+   854→   854→// components/charts/rep-leaderboard.tsx
+   855→   855→"use client";
+   856→   856→
+   857→   857→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+   858→   858→import {
+   859→   859→  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine,
+   860→   860→} from "recharts";
+   861→   861→
+   862→   862→export type RepAttainment = {
+   863→   863→  repId: string;
+   864→   864→  repName: string;
+   865→   865→  zone: string;
+   866→   866→  attainmentPct: number;
+   867→   867→  revenueInr: number;
+   868→   868→};
+   869→   869→
+   870→   870→const colorForAttainment = (pct: number) =>
+   871→   871→  pct >= 100 ? "#16A34A" : pct >= 80 ? "#F59E0B" : "#DC2626";
+   872→   872→
+   873→   873→export function RepLeaderboard({
+   874→   874→  data,
+   875→   875→  title = "Rep Leaderboard — Attainment %",
+   876→   876→  limit = 10,
+   877→   877→}: {
+   878→   878→  data: RepAttainment[];
+   879→   879→  title?: string;
+   880→   880→  limit?: number;
+   881→   881→}) {
+   882→   882→  const top = [...data]
+   883→   883→    .sort((a, b) => b.attainmentPct - a.attainmentPct)
+   884→   884→    .slice(0, limit);
+   885→   885→
+   886→   886→  return (
+   887→   887→    <Card>
+   888→   888→      <CardHeader>
+   889→   889→        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+   890→   890→      </CardHeader>
+   891→   891→      <CardContent>
+   892→   892→        <ResponsiveContainer width="100%" height={limit * 28 + 20}>
+   893→   893→          <BarChart data={top} layout="vertical" margin={{ left: 80, right: 16 }}>
+   894→   894→            <XAxis type="number" domain={[0, "auto"]} tickFormatter={(v) => `${v}%`} />
+   895→   895→            <YAxis
+   896→   896→              type="category"
+   897→   897→              dataKey="repName"
+   898→   898→              width={80}
+   899→   899→              tick={{ fontSize: 11 }}
+   900→   900→            />
+   901→   901→            <Tooltip
+   902→   902→              formatter={(v: number) => [`${v.toFixed(1)}%`, "Attainment"]}
+   903→   903→              labelFormatter={(_, p) => {
+   904→   904→                const row = p?.[0]?.payload as RepAttainment;
+   905→   905→                return row ? `${row.repName} · ${row.zone}` : "";
+   906→   906→              }}
+   907→   907→            />
+   908→   908→            <ReferenceLine x={100} stroke="#64748B" strokeDasharray="3 3" />
+   909→   909→            <Bar dataKey="attainmentPct" radius={[0, 4, 4, 0]}>
+   910→   910→              {top.map((row) => (
+   911→   911→                <Cell key={row.repId} fill={colorForAttainment(row.attainmentPct)} />
+   912→   912→              ))}
+   913→   913→            </Bar>
+   914→   914→          </BarChart>
+   915→   915→        </ResponsiveContainer>
+   916→   916→      </CardContent>
+   917→   917→    </Card>
+   918→   918→  );
+   919→   919→}
+   920→   920→```
+   921→   921→
+   922→   922→---
+   923→   923→
+   924→   924→## 20. Appendix D — India State → Zone Mapping
+   925→   925→
+   926→   926→Use this mapping for the geo map and zone filters. All 28 states + 8 UTs covered.
+   927→   927→
+   928→   928→| Zone | States / UTs |
+   929→   929→|---|---|
+   930→   930→| **North** | Jammu & Kashmir, Ladakh, Himachal Pradesh, Punjab, Haryana, Delhi, Uttarakhand, Uttar Pradesh, Rajasthan, Chandigarh |
+   931→   931→| **South** | Andhra Pradesh, Telangana, Karnataka, Tamil Nadu, Kerala, Puducherry, Lakshadweep, Andaman & Nicobar Islands |
+   932→   932→| **East** | Bihar, Jharkhand, West Bengal, Odisha, Sikkim, Assam, Meghalaya, Manipur, Mizoram, Nagaland, Tripura, Arunachal Pradesh |
+   933→   933→| **West** | Gujarat, Maharashtra, Goa, Madhya Pradesh, Chhattisgarh, Dadra & Nagar Haveli and Daman & Diu |
+   934→   934→
+   935→   935→---
+   936→   936→
+   937→   937→## 21. Open Questions & Final Notes to the Agent
+   938→   938→
+   939→   939→### 21.1 Assumptions You Are Allowed to Make
+   940→   940→
+   941→   941→- Currency is INR. Display in **₹X.XX Cr** for amounts ≥ ₹1 Cr, **₹X.XX L** for amounts ≥ ₹1 L, else **₹X,XXX**. Use Indian digit grouping (1,00,000 not 100,000).
+   942→   942→- Fiscal year is **April → March**. Quarters are: Q1 = Apr-Jun, Q2 = Jul-Sep, Q3 = Oct-Dec, Q4 = Jan-Mar.
+   943→   943→- The dashboard does not need authentication — assume a single logged-in user with full visibility.
+   944→   944→- No PII masking is required (the data is fabricated).
+   945→   945→- The "India geo map" should use a TopoJSON file for Indian states. Source it from `india-states.topo.json` in `/public`. A reasonable public source is the [react-simple-maps India example repo](https://github.com/zcreativelabs/react-simple-maps) — verify the license before committing.
+   946→   946→
+   947→   947→### 21.2 Open Questions (pick a sensible default + document in README)
+   948→   948→
+   949→   949→1. **Mobile behavior for the calendar heatmap** — collapse to a 6-month view? Pick a sensible default.
+   950→   950→2. **Forecast model** — statsmodels Holt-Winters is the default. If you find a simpler moving-average gives lower MAPE on backtest, you may switch and document why.
+   951→   951→3. **Date range picker default** — last 12 months is the suggested default. Confirm or pick a different sensible default.
+   952→   952→4. **Prisma DB engine** — SQLite is fine for local dev. If you choose to add Postgres support, document the env var swap.
+   953→   953→5. **Color palette** — the suggested palette is sky blue (#0EA5E9) for primary, slate (#0F172A) for text, with semantic green/amber/red. You may swap to a different 3-color palette if it improves contrast.
+   954→   954→
+   955→   955→### 21.3 Final Notes
+   956→   956→
+   957→   957→- Treat reproducibility as a hard requirement. The same `python scripts/generate_dataset.py` run with seed 42 must produce byte-identical CSVs every time. If you find non-determinism (e.g., dict ordering, set iteration), pin it.
+   958→   958→- The dataset is the foundation. Spend time getting it right — every chart depends on it. A typical mistake is to generate `visits` and `sales` independently and lose the causal link (a visit should precede the sale within 14 days). The `gen_sales` function must read from the `visits` table, not generate from scratch.
+   959→   959→- The dashboard is a demo, not a production system. Optimize for clarity and visual polish over engineering rigor. If a 200-line Prisma query and a 50-line Prisma query produce the same chart, prefer the 50-line one.
+   960→   960→- When in doubt, ship the simplest version that meets the acceptance criteria. You can always iterate.
+   961→   961→

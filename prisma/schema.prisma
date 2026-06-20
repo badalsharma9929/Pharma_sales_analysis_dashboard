@@ -1,0 +1,138 @@
+// prisma/schema.prisma
+// MedLife Pharma — 7-table schema matching the brief's Appendix A ERD.
+// SQLite database at /home/z/my-project/db/custom.db (env: DATABASE_URL).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Rep {
+  repId            String   @id @map("rep_id")
+  firstName        String   @map("first_name")
+  lastName         String   @map("last_name")
+  email            String   @unique
+  phone            String
+  role             String
+  managerId        String?  @map("manager_id")
+  manager          Rep?     @relation("RepHierarchy", fields: [managerId], references: [repId])
+  reports          Rep[]    @relation("RepHierarchy")
+  zone             String
+  state            String
+  city             String
+  hireDate         DateTime @map("hire_date")
+  exitDate         DateTime? @map("exit_date")
+  status           String
+  baseSalaryInr    Int      @map("base_salary_inr")
+  targetStretchPct Float    @map("target_stretch_pct")
+  visits           Visit[]
+  sales            Sale[]
+  expenses         Expense[]
+  targets          Target[]
+
+  @@map("reps")
+}
+
+model Hcp {
+  hcpId            String   @id @map("hcp_id")
+  firstName        String   @map("first_name")
+  lastName         String   @map("last_name")
+  specialty        String
+  tier             String
+  decile           Int
+  city             String
+  state            String
+  zone             String
+  hospital         String?
+  yearsPracticing  Int      @map("years_practicing")
+  preferredContact String   @map("preferred_contact")
+  npiLikeId        String   @unique @map("npi_like_id")
+  visits           Visit[]
+  sales            Sale[]
+
+  @@map("hcps")
+}
+
+model Product {
+  productId     String   @id @map("product_id")
+  productName   String   @map("product_name")
+  molecule      String
+  therapyArea   String   @map("therapy_area")
+  launchDate    DateTime @map("launch_date")
+  mrpInr        Int      @map("mrp_inr")
+  packSize      Int      @map("pack_size")
+  isNewLaunch   Boolean  @map("is_new_launch")
+  priority      String
+  sales         Sale[]
+  targets       Target[]
+
+  @@map("products")
+}
+
+model Visit {
+  visitId           String   @id @map("visit_id")
+  repId             String   @map("rep_id")
+  rep               Rep      @relation(fields: [repId], references: [repId])
+  hcpId             String   @map("hcp_id")
+  hcp               Hcp      @relation(fields: [hcpId], references: [hcpId])
+  visitDate         DateTime @map("visit_date")
+  visitType         String   @map("visit_type")
+  durationMin       Int      @map("duration_min")
+  productsDetailed  String   @map("products_detailed")
+  samplesDropped    Int      @map("samples_dropped")
+  outcome           String
+  followupRequired  Boolean  @map("followup_required")
+
+  @@map("visits")
+}
+
+model Sale {
+  invoiceId     String   @id @map("invoice_id")
+  distributorId String   @map("distributor_id")
+  repId         String   @map("rep_id")
+  rep           Rep      @relation(fields: [repId], references: [repId])
+  hcpId         String   @map("hcp_id")
+  hcp           Hcp      @relation(fields: [hcpId], references: [hcpId])
+  productId     String   @map("product_id")
+  product       Product  @relation(fields: [productId], references: [productId])
+  qtyPacks      Int      @map("qty_packs")
+  unitPriceInr  Int      @map("unit_price_inr")
+  discountPct   Float    @map("discount_pct")
+  netValueInr   Int      @map("net_value_inr")
+  invoiceDate   DateTime @map("invoice_date")
+  channel       String
+
+  @@map("sales")
+}
+
+model Expense {
+  expenseId        String   @id @map("expense_id")
+  repId            String   @map("rep_id")
+  rep              Rep      @relation(fields: [repId], references: [repId])
+  expenseDate      DateTime @map("expense_date")
+  category         String
+  amountInr        Int      @map("amount_inr")
+  reimbursed       Boolean
+  policyCompliant  Boolean  @map("policy_compliant")
+  notes            String?
+
+  @@map("expenses")
+}
+
+model Target {
+  targetId         String  @id @map("target_id")
+  repId            String  @map("rep_id")
+  rep              Rep     @relation(fields: [repId], references: [repId])
+  productId        String  @map("product_id")
+  product          Product @relation(fields: [productId], references: [productId])
+  fy               Int
+  quarter          String
+  targetQty        Int     @map("target_qty")
+  targetValueInr   Int     @map("target_value_inr")
+
+  @@map("targets")
+}
