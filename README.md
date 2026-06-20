@@ -7,6 +7,10 @@ all **8 mandated chart types**, with shareable URL-based global filters, a teal/
 color palette (instead of the brief's suggested sky-blue), Indian currency/date
 formatting, and a responsive mobile layout.
 
+## Live Demo
+
+- Production URL: https://med-data-analysis.vercel.app
+
 ---
 
 ## 1. Tech Stack
