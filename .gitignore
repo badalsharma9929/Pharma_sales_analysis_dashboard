@@ -52,3 +52,26 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# Generated dataset (regenerable via `bun run seed` -> python scripts/generate_dataset.py)
+/data/
+
+# SQLite database (regenerable via `bun run seed:db`)
+/db/
+*.db
+*.db-journal
+
+# Upload brief (source spec, not part of the app)
+/upload/
+
+# Tool output
+/tool-results/
+
+# Worklog (internal multi-agent log)
+/worklog.md
+
+# Z scripts (sandbox infra, not part of the app)
+/.zscripts/
+
+# Mini services build artifacts
+/mini-services/
