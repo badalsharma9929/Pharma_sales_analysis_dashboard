@@ -10,7 +10,7 @@ import { HcpTargetingView } from "@/components/views/hcp-targeting-view";
 import { ProductMixView } from "@/components/views/product-mix-view";
 import { ForecastView } from "@/components/views/forecast-view";
 
-export default function Home() {
+function DashboardContent() {
   const [view, setView] = React.useState<ViewId>("overview");
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
@@ -62,5 +62,19 @@ export default function Home() {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-muted/30">
+          <div className="text-sm text-muted-foreground">Loading dashboard...</div>
+        </div>
+      }
+    >
+      <DashboardContent />
+    </React.Suspense>
   );
 }

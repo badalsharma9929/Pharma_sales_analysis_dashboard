@@ -56,9 +56,8 @@ server.log
 # Generated dataset (regenerable via `bun run seed` -> python scripts/generate_dataset.py)
 /data/
 
-# SQLite database (regenerable via `bun run seed:db`)
-/db/
-*.db
+# SQLite database (must be uploaded for serverless deployments)
+# Keep the bundled DB available at runtime.
 *.db-journal
 
 # Upload brief (source spec, not part of the app)

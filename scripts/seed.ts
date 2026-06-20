@@ -12,9 +12,10 @@
  */
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
+import { resolve } from "node:path";
 import { db } from "../src/lib/db";
 
-const DATA_DIR = "/home/z/my-project/data";
+const DATA_DIR = resolve(__dirname, "..", "data");
 const BATCH_SIZE = 2000;
 
 type Row = Record<string, string>;
