@@ -7,5 +7,14 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body>{children}</body></html>;
+  const fetchPatch = `
+    (() => {
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (input, init) => {
+        if (typeof input === 'string' && input === '/api/analyze') input = '/api/process';
+        return originalFetch(input, init);
+      };
+    })();
+  `;
+  return <html lang="en"><body><script dangerouslySetInnerHTML={{ __html: fetchPatch }} />{children}</body></html>;
 }
