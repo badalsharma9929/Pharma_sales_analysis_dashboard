@@ -2,10 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  outputFileTracingIncludes: {
-    "/api/*": ["./db/**"],
+  async rewrites() {
+    return [{ source: "/api/analyze", destination: "/api/process" }];
   },
-  /* config options here */
   typescript: {
     ignoreBuildErrors: true,
   },
