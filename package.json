@@ -1,6 +1,6 @@
 {
   "name": "insurance-business-insights-dashboard",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -12,6 +12,7 @@
     "pptxgenjs": "4.0.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "recharts": "^3.1.2",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
