@@ -206,8 +206,8 @@ function strongest(data: Item[], metric: Metric) {
 function sourceTable(data: Item[], multiSeries = false, limit = 6) {
   const rows = data.slice(0, limit);
   const header = multiSeries
-    ? ["Category", "Series", "Enrolments", "Premium"]
-    : ["Category", "Enrolments", "Premium", "Avg. premium"];
+    ? ["Category", "Series", "Records", "Premium"]
+    : ["Category", "Records", "Premium", "Avg. premium"];
   return [
     header,
     ...rows.map((row) =>
@@ -269,7 +269,7 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
       y: 0.28,
       w: 12.1,
       h: 0.58,
-      fontSize: 35,
+      fontSize: 32,
       bold: true,
       color: C.navy,
       margin: 0,
@@ -370,7 +370,7 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
       bold: false,
       autoFit: false,
       colW: multiSeries
-        ? [1.45, 1.1, 0.9, 1.3]
+        ? [1, 1.45, 0.85, 1.45]
         : [1.65, 0.85, 1.2, 1.15],
     });
     slide.addText(takeaway, {
@@ -541,7 +541,7 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
     title: `${currentYear} versus ${previousYear}`,
     subtitle: "Premium performance and enrolment volume for the latest two uploaded years",
     data: analysis.latest_vs_previous || [],
-    chartType: pptx.ChartType.column,
+    chartType: pptx.ChartType.bar,
     metric: "amount",
     takeaway:
       insights.find((item) => item.startsWith("Premium collected")) ||
@@ -576,7 +576,7 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
       title: "Plan leadership changes across years",
       subtitle: "Premium collected by detected plan and transaction year",
       data: result.analysis.plan_year_comparison || [],
-      chartType: pptx.ChartType.column,
+      chartType: pptx.ChartType.bar,
       metric: "amount",
       multiSeries: true,
       takeaway:
@@ -601,10 +601,10 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
       metric: "count",
     },
     {
-      title: "Age composition identifies the core member segment",
+      title: "Age mix reveals the core member segment",
       subtitle: "Age-group participation and premium contribution",
       key: "age",
-      chartType: pptx.ChartType.column,
+      chartType: pptx.ChartType.bar,
       metric: "count",
     },
     {
@@ -623,7 +623,7 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
       metric: "count",
     },
     {
-      title: "Batch participation highlights the largest opportunity",
+      title: "Batch mix highlights the largest opportunity",
       subtitle: "Every nonblank passing year or batch in the selected analysis",
       key: "passing_year",
       chartType: pptx.ChartType.bar,
@@ -634,7 +634,7 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
       title: "Cover preference anchors product design",
       subtitle: "Most-selected sum-insured levels and associated premium",
       key: "sum_insured",
-      chartType: pptx.ChartType.column,
+      chartType: pptx.ChartType.bar,
       metric: "count",
       insightPattern: "most selected sum insured",
     },
