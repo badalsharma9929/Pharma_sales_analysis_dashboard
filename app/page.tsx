@@ -98,9 +98,22 @@ export default function Home() {
         method: "POST",
         body: form,
       });
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any = {};
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        throw new Error(
+          response.ok
+            ? "The server returned an unreadable response."
+            : `Processing failed (${response.status}). Please try again.`,
+        );
+      }
       if (!response.ok) {
-        throw new Error(data.detail || "Unable to process workbook.");
+        throw new Error(
+          data.detail ||
+            `Unable to process workbook (${response.status}). Please verify the file and password.`,
+        );
       }
       setResult(data);
     } catch (exception: any) {
@@ -462,6 +475,15 @@ export default function Home() {
                 "Passing year / batch analysis",
                 "All nonblank batches in this view",
                 "passing_year",
+                "bar",
+                "count",
+                false,
+                false,
+              ],
+              [
+                "Age analysis",
+                "Age-group enrolments and premium contribution",
+                "age",
                 "bar",
                 "count",
                 false,
