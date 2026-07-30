@@ -105,6 +105,7 @@ export async function exportExcel(result: Result, selectedView = "all") {
     ["Month_By_Year", "month_by_year"],
     ["Monthly_Trend", "monthly_trend"],
     ["Daily_Trend", "daily_trend"],
+    ["Age_Analysis", "age"],
     ["State_Analysis", "state"],
     ["City_Analysis", "city"],
     ["Pincode_Analysis", "pincode"],
@@ -187,6 +188,46 @@ function native(data: Item[], metric: Metric, seriesKey = false) {
   }));
 }
 
+function short(value: unknown, limit = 24) {
+  const text = String(value ?? "");
+  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
+}
+
+function strongest(data: Item[], metric: Metric) {
+  return data.reduce<Item | null>(
+    (best, row) =>
+      !best || Number(row[metric] || 0) > Number(best[metric] || 0)
+        ? row
+        : best,
+    null,
+  );
+}
+
+function sourceTable(data: Item[], multiSeries = false, limit = 6) {
+  const rows = data.slice(0, limit);
+  const header = multiSeries
+    ? ["Category", "Series", "Enrolments", "Premium"]
+    : ["Category", "Enrolments", "Premium", "Avg. premium"];
+  return [
+    header,
+    ...rows.map((row) =>
+      multiSeries
+        ? [
+            short(row.label, 18),
+            short(row.series || "Data", 15),
+            Number(row.count || 0).toLocaleString("en-IN"),
+            money(row.amount),
+          ]
+        : [
+            short(row.label, 21),
+            Number(row.count || 0).toLocaleString("en-IN"),
+            money(row.amount),
+            money(row.average),
+          ],
+    ),
+  ];
+}
+
 export async function exportPowerPoint(result: Result, selectedView = "all") {
   const module: any = await import("pptxgenjs");
   const PptxGenJS = module.default || module;
@@ -205,304 +246,531 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
 
   const C = {
     navy: "102033",
+    dark: "071F27",
     teal: "0A6A61",
+    mint: "DDF3EE",
     blue: "2576A8",
     orange: "E58B37",
     purple: "7E57C2",
+    red: "C65B5B",
     gray: "667B8E",
     pale: "F2F6FA",
     white: "FFFFFF",
     line: "D7E1E8",
   };
+  const chartColors = [C.teal, C.blue, C.orange, C.purple, C.red];
+  let pageNumber = 0;
 
   const header = (slide: any, title: string, subtitle: string) => {
+    pageNumber += 1;
     slide.background = { color: C.white };
     slide.addText(title, {
       x: 0.55,
-      y: 0.35,
-      w: 9.5,
-      h: 0.4,
-      fontSize: 24,
+      y: 0.28,
+      w: 12.1,
+      h: 0.58,
+      fontSize: 35,
       bold: true,
       color: C.navy,
       margin: 0,
+      breakLine: false,
+      fit: "shrink",
     });
     slide.addText(subtitle, {
       x: 0.55,
-      y: 0.83,
+      y: 0.91,
       w: 11.8,
-      h: 0.28,
-      fontSize: 10,
+      h: 0.32,
+      fontSize: 16,
       color: C.gray,
       margin: 0,
+      fit: "shrink",
     });
     slide.addShape(pptx.ShapeType.line, {
       x: 0.55,
-      y: 1.16,
+      y: 1.3,
       w: 12.1,
       h: 0,
       line: { color: C.line },
     });
+    slide.addText(String(pageNumber), {
+      x: 12.2,
+      y: 7.05,
+      w: 0.4,
+      h: 0.2,
+      align: "right",
+      fontSize: 10,
+      color: C.gray,
+      margin: 0,
+    });
+  };
+
+  const addChartSlide = ({
+    title,
+    subtitle,
+    data,
+    chartType,
+    metric,
+    multiSeries = false,
+    takeaway,
+  }: {
+    title: string;
+    subtitle: string;
+    data: Item[];
+    chartType: any;
+    metric: Metric;
+    multiSeries?: boolean;
+    takeaway: string;
+  }) => {
+    if (!data?.length) return;
+    const chartRows = data.slice(0, multiSeries ? 24 : 12);
+    const slide = pptx.addSlide();
+    header(slide, title, subtitle);
+
+    slide.addChart(chartType, native(chartRows, metric, multiSeries), {
+      x: 0.55,
+      y: 1.52,
+      w: 7.15,
+      h: 5.15,
+      showLegend: multiSeries,
+      legendPos: "b",
+      showTitle: false,
+      showValue: false,
+      showCatName: false,
+      catAxisLabelFontSize: 12,
+      valAxisLabelFontSize: 11,
+      chartColors,
+      showBorder: false,
+      showGridLines: true,
+      showPercent: false,
+    });
+
+    slide.addText("SOURCE DATA USED FOR THIS CHART", {
+      x: 8.05,
+      y: 1.53,
+      w: 4.7,
+      h: 0.25,
+      fontSize: 16,
+      bold: true,
+      color: C.teal,
+      margin: 0,
+    });
+    slide.addTable(sourceTable(chartRows, multiSeries), {
+      x: 8.03,
+      y: 1.88,
+      w: 4.75,
+      h: 3.25,
+      fontFace: "Aptos",
+      fontSize: 12,
+      color: C.navy,
+      border: { type: "solid", color: C.line, pt: 0.6 },
+      fill: C.white,
+      margin: 0.08,
+      rowH: 0.42,
+      bold: false,
+      autoFit: false,
+      colW: multiSeries
+        ? [1.45, 1.1, 0.9, 1.3]
+        : [1.65, 0.85, 1.2, 1.15],
+    });
+    slide.addText(takeaway, {
+      x: 8.03,
+      y: 5.35,
+      w: 4.75,
+      h: 1.15,
+      fontSize: 16,
+      bold: true,
+      color: C.navy,
+      fill: { color: C.mint },
+      line: { color: "B9DED5", pt: 1 },
+      margin: 0.18,
+      valign: "mid",
+      fit: "shrink",
+    });
   };
 
   let slide = pptx.addSlide();
-  slide.background = { color: C.navy };
+  slide.background = { color: C.dark };
+  slide.addShape(pptx.ShapeType.rect, {
+    x: 0,
+    y: 0,
+    w: 0.22,
+    h: 7.5,
+    line: { color: C.teal, transparency: 100 },
+    fill: { color: C.teal },
+  });
   slide.addText("Insurance Premium Performance Analysis", {
     x: 0.75,
-    y: 1.25,
+    y: 1.35,
     w: 11.5,
-    h: 0.8,
-    fontSize: 34,
+    h: 1.25,
+    fontSize: 50,
     bold: true,
     color: C.white,
     margin: 0,
+    fit: "shrink",
   });
   slide.addText(
     `${result.meta.college_name || "College"} • ${viewName}`,
     {
       x: 0.78,
-      y: 2.25,
+      y: 2.95,
       w: 10.8,
       h: 0.5,
-      fontSize: 18,
+      fontSize: 24,
       color: "B8D9D5",
       margin: 0,
     },
   );
   slide.addText(
-    `Current period ${currentYear} compared with ${previousYear}. transaction_amount is treated as premium.`,
+    `${currentYear} performance compared with ${previousYear} • ${result.meta.files_processed || 0} source file(s) • ${Number(kpis.total_records || 0).toLocaleString("en-IN")} clean records`,
     {
       x: 0.78,
-      y: 3,
-      w: 10.5,
-      h: 0.35,
-      fontSize: 14,
+      y: 3.75,
+      w: 11.2,
+      h: 0.5,
+      fontSize: 18,
       color: C.white,
+      margin: 0,
+    },
+  );
+  slide.addText(
+    `Generated ${new Date(result.meta.processed_at).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    })}`,
+    {
+      x: 0.78,
+      y: 6.55,
+      w: 4,
+      h: 0.3,
+      fontSize: 14,
+      color: "9EB8BE",
       margin: 0,
     },
   );
 
   slide = pptx.addSlide();
-  header(slide, "Executive summary", `${viewName} premium and enrolment overview`);
-  const cards = [
-    ["Clean records", kpis.total_records],
-    ["Premium collected", money(kpis.total_premium)],
+  header(
+    slide,
+    "The portfolio at a glance",
+    `${viewName}: scale, value and the closest decision-relevant finding`,
+  );
+  slide.addText(money(kpis.total_premium), {
+    x: 0.65,
+    y: 1.65,
+    w: 5.7,
+    h: 0.85,
+    fontSize: 42,
+    bold: true,
+    color: C.teal,
+    margin: 0,
+  });
+  slide.addText("TOTAL PREMIUM COLLECTED", {
+    x: 0.65,
+    y: 2.48,
+    w: 5.7,
+    h: 0.3,
+    fontSize: 16,
+    bold: true,
+    color: C.gray,
+    margin: 0,
+  });
+  [
+    ["Clean enrolments", kpis.total_records],
     ["Average premium", money(kpis.average_premium)],
-    ["Current year", kpis.current_year],
-    ["Previous year", kpis.previous_year],
-    ["Most selected sum insured", kpis.most_selected_sum_insured],
-  ];
-  cards.forEach(([label, value], index) => {
-    const x = 0.6 + (index % 3) * 4.15;
-    const y = 1.5 + Math.floor(index / 3) * 1.45;
-    slide.addText(String(label).toUpperCase(), {
+    ["Most selected cover", kpis.most_selected_sum_insured],
+    ["Top batch", kpis.top_batch],
+  ].forEach(([label, value], index) => {
+    const x = 6.65 + (index % 2) * 3.05;
+    const y = 1.6 + Math.floor(index / 2) * 1.45;
+    slide.addText(String(value), {
       x,
       y,
-      w: 3.8,
+      w: 2.7,
+      h: 0.52,
+      fontSize: 24,
+      bold: true,
+      color: C.navy,
+      margin: 0,
+      fit: "shrink",
+    });
+    slide.addText(String(label).toUpperCase(), {
+      x,
+      y: y + 0.58,
+      w: 2.7,
       h: 0.25,
-      fontSize: 8,
+      fontSize: 13,
       bold: true,
       color: C.gray,
       margin: 0,
     });
-    slide.addText(String(value), {
-      x,
-      y: y + 0.28,
-      w: 3.8,
-      h: 0.72,
-      fontSize: 18,
+  });
+  slide.addText(
+    insights[0] || "Upload at least two years to produce a year-over-year conclusion.",
+    {
+      x: 0.65,
+      y: 4.25,
+      w: 12.05,
+      h: 1.35,
+      fontSize: 20,
       bold: true,
       color: C.navy,
-      fill: { color: C.pale },
-      line: { color: C.line },
-      margin: 0.12,
+      fill: { color: C.mint },
+      line: { color: "B9DED5", pt: 1 },
+      margin: 0.25,
       valign: "mid",
+      fit: "shrink",
+    },
+  );
+  slide.addText(
+    "Premium equals transaction_amount. The conclusion is calculated only from cleaned uploaded records.",
+    {
+      x: 0.65,
+      y: 6.15,
+      w: 11.8,
+      h: 0.35,
+      fontSize: 16,
+      color: C.gray,
+      margin: 0,
+    },
+  );
+
+  addChartSlide({
+    title: `${currentYear} versus ${previousYear}`,
+    subtitle: "Premium performance and enrolment volume for the latest two uploaded years",
+    data: analysis.latest_vs_previous || [],
+    chartType: pptx.ChartType.column,
+    metric: "amount",
+    takeaway:
+      insights.find((item) => item.startsWith("Premium collected")) ||
+      "Upload the same plan for two years to calculate year-over-year premium movement.",
+  });
+
+  addChartSlide({
+    title: "The strongest months explain the annual result",
+    subtitle: "January–December premium performance for every uploaded year",
+    data: analysis.month_by_year || [],
+    chartType: pptx.ChartType.line,
+    metric: "amount",
+    multiSeries: true,
+    takeaway:
+      insights.find((item) => item.includes("strongest month")) ||
+      "Monthly movement is calculated from transaction date and transaction amount.",
+  });
+
+  if (selectedView === "all") {
+    addChartSlide({
+      title: "One plan leads the college portfolio",
+      subtitle: "Detected plan comparison by premium collected",
+      data: result.analysis.plan_comparison || [],
+      chartType: pptx.ChartType.bar,
+      metric: "amount",
+      takeaway:
+        insights.find((item) => item.includes("leads premium collection")) ||
+        "Plan comparison uses premium, enrolments, batch reach and cover participation.",
+    });
+
+    addChartSlide({
+      title: "Plan leadership changes across years",
+      subtitle: "Premium collected by detected plan and transaction year",
+      data: result.analysis.plan_year_comparison || [],
+      chartType: pptx.ChartType.column,
+      metric: "amount",
+      multiSeries: true,
+      takeaway:
+        insights.find((item) => item.includes("suitability")) ||
+        "Compare plan performance over time before selecting the best fit for the college.",
+    });
+  }
+
+  const chartSpecs: Array<{
+    title: string;
+    subtitle: string;
+    key: string;
+    chartType: any;
+    metric: Metric;
+    insightPattern?: string;
+  }> = [
+    {
+      title: "Premium bands show the most effective price range",
+      subtitle: "Enrolment volume and premium value by transaction-amount band",
+      key: "premium_bands",
+      chartType: pptx.ChartType.bar,
+      metric: "count",
+    },
+    {
+      title: "Age composition identifies the core member segment",
+      subtitle: "Age-group participation and premium contribution",
+      key: "age",
+      chartType: pptx.ChartType.column,
+      metric: "count",
+    },
+    {
+      title: "Geography reveals the strongest market",
+      subtitle: "State-level enrolment and premium concentration",
+      key: "state",
+      chartType: pptx.ChartType.bar,
+      metric: "count",
+      insightPattern: "leading state",
+    },
+    {
+      title: "Course mix shows where demand is concentrated",
+      subtitle: "Course-wise enrolment and premium performance",
+      key: "course",
+      chartType: pptx.ChartType.bar,
+      metric: "count",
+    },
+    {
+      title: "Batch participation highlights the largest opportunity",
+      subtitle: "Every nonblank passing year or batch in the selected analysis",
+      key: "passing_year",
+      chartType: pptx.ChartType.bar,
+      metric: "count",
+      insightPattern: "highest participation",
+    },
+    {
+      title: "Cover preference anchors product design",
+      subtitle: "Most-selected sum-insured levels and associated premium",
+      key: "sum_insured",
+      chartType: pptx.ChartType.column,
+      metric: "count",
+      insightPattern: "most selected sum insured",
+    },
+  ];
+
+  chartSpecs.forEach((spec) => {
+    const data = analysis[spec.key] || [];
+    const leader = strongest(data, spec.metric);
+    const generatedTakeaway = leader
+      ? `${leader.label} leads this analysis with ${Number(
+          leader.count || 0,
+        ).toLocaleString("en-IN")} enrolments and ${money(leader.amount)} premium.`
+      : "This analysis was not available in the uploaded workbook.";
+    addChartSlide({
+      title: spec.title,
+      subtitle: spec.subtitle,
+      data,
+      chartType: spec.chartType,
+      metric: spec.metric,
+      takeaway:
+        (spec.insightPattern &&
+          insights.find((item) =>
+            item.toLowerCase().includes(spec.insightPattern!.toLowerCase()),
+          )) ||
+        generatedTakeaway,
     });
   });
 
   slide = pptx.addSlide();
   header(
     slide,
-    `${currentYear} versus ${previousYear}`,
-    "Premium, enrolment and month-by-month movement",
+    "What management should take from the data",
+    `Closest data-supported conclusions for ${viewName}; no external assumptions`,
   );
-  if (analysis.latest_vs_previous?.length) {
-    slide.addChart(
-      pptx.ChartType.column,
-      native(analysis.latest_vs_previous, "amount"),
-      {
-        x: 0.55,
-        y: 1.45,
-        w: 5.9,
-        h: 4.9,
-        showLegend: false,
-        showTitle: true,
-        title: "Premium by year",
-        chartColors: [C.teal],
-      },
-    );
-  }
-  if (analysis.month_by_year?.length) {
-    slide.addChart(
-      pptx.ChartType.line,
-      native(analysis.month_by_year, "amount", true),
-      {
-        x: 6.75,
-        y: 1.45,
-        w: 5.9,
-        h: 4.9,
-        showLegend: true,
-        showTitle: true,
-        title: "Month-by-month premium comparison",
-        chartColors: [C.teal, C.blue, C.orange, C.purple],
-      },
-    );
-  }
-
-  if (selectedView === "all") {
-    slide = pptx.addSlide();
-    header(
-      slide,
-      "Detected plan comparison",
-      "Premium, enrolment, batch reach and sum-insured participation",
-    );
-    if (result.analysis.plan_comparison?.length) {
-      slide.addChart(
-        pptx.ChartType.bar,
-        native(result.analysis.plan_comparison, "amount"),
-        {
-          x: 0.55,
-          y: 1.45,
-          w: 6,
-          h: 4.9,
-          showTitle: true,
-          title: "Premium by detected plan",
-          showLegend: false,
-          chartColors: [C.blue],
-        },
-      );
-    }
-    const recommendations = (result.analysis.plan_recommendation || [])
-      .slice(0, 3)
-      .map((row, index) => ({
-        text: `${index + 1}. ${row.label} — ${row.suitability_score}/100; ${row.count} enrolments; ${row.batch_count} batches; ${money(row.amount)} premium`,
-        options: { breakLine: true },
-      }));
-    slide.addText(
-      recommendations.length ? recommendations : "No plan comparison data available.",
-      {
-        x: 6.9,
-        y: 1.65,
-        w: 5.6,
-        h: 3.8,
+  (insights.length ? insights : ["No business findings were generated."])
+    .slice(0, 6)
+    .forEach((insight, index) => {
+      const y = 1.55 + index * 0.83;
+      slide.addText(String(index + 1).padStart(2, "0"), {
+        x: 0.68,
+        y,
+        w: 0.55,
+        h: 0.4,
+        fontSize: 20,
+        bold: true,
+        color: C.teal,
+        margin: 0,
+      });
+      slide.addText(insight, {
+        x: 1.35,
+        y: y - 0.05,
+        w: 11.15,
+        h: 0.65,
         fontSize: 16,
         color: C.navy,
-        breakLine: true,
-        margin: 0.15,
-        valign: "top",
-      },
-    );
-
-    slide = pptx.addSlide();
-    header(
-      slide,
-      "Plan performance by year and month",
-      "Identify which detected plan performed best in each period",
-    );
-    if (result.analysis.plan_year_comparison?.length) {
-      slide.addChart(
-        pptx.ChartType.column,
-        native(result.analysis.plan_year_comparison, "amount", true),
-        {
-          x: 0.55,
-          y: 1.45,
-          w: 5.9,
-          h: 4.9,
-          showTitle: true,
-          title: "Premium by plan and year",
-          showLegend: true,
-          chartColors: [C.teal, C.blue, C.orange],
-        },
-      );
-    }
-    if (result.analysis.plan_month_comparison?.length) {
-      slide.addChart(
-        pptx.ChartType.line,
-        native(result.analysis.plan_month_comparison.slice(-36), "amount", true),
-        {
-          x: 6.75,
-          y: 1.45,
-          w: 5.9,
-          h: 4.9,
-          showTitle: true,
-          title: "Monthly premium by plan",
-          showLegend: true,
-          chartColors: [C.teal, C.blue, C.orange],
-        },
-      );
-    }
-  } else {
-    slide = pptx.addSlide();
-    header(
-      slide,
-      `${selectedView} portfolio profile`,
-      "Sum-insured preference and batch participation",
-    );
-    if (analysis.sum_insured?.length) {
-      slide.addChart(
-        pptx.ChartType.column,
-        native(analysis.sum_insured, "count"),
-        {
-          x: 0.55,
-          y: 1.45,
-          w: 5.9,
-          h: 4.9,
-          showTitle: true,
-          title: "Sum-insured enrolments",
-          showLegend: false,
-          chartColors: [C.teal],
-        },
-      );
-    }
-    if (analysis.passing_year?.length) {
-      slide.addChart(
-        pptx.ChartType.bar,
-        native(analysis.passing_year, "count"),
-        {
-          x: 6.75,
-          y: 1.45,
-          w: 5.9,
-          h: 4.9,
-          showTitle: true,
-          title: "Batch participation",
-          showLegend: false,
-          chartColors: [C.blue],
-        },
-      );
-    }
-  }
+        margin: 0,
+        fit: "shrink",
+      });
+      slide.addShape(pptx.ShapeType.line, {
+        x: 1.35,
+        y: y + 0.63,
+        w: 11.15,
+        h: 0,
+        line: { color: C.line, pt: 0.5 },
+      });
+    });
 
   slide = pptx.addSlide();
   header(
     slide,
-    "Business findings",
-    `Closest data-supported conclusions for ${viewName}`,
+    "Data quality and interpretation rules",
+    "Use these controls when presenting or making a plan decision",
   );
+  const qualityRows = [
+    ["Rows received", result.data_quality.rows_before_cleaning],
+    ["Invalid transaction dates removed", result.data_quality.invalid_dates_removed],
+    ["Exact duplicates removed", result.data_quality.exact_duplicates_removed],
+    [
+      "Duplicate transaction IDs removed",
+      result.data_quality.duplicate_transaction_ids_removed,
+    ],
+    ["Final clean records", result.data_quality.final_rows],
+  ];
+  slide.addTable([["Quality check", "Result"], ...qualityRows], {
+    x: 0.65,
+    y: 1.62,
+    w: 5.5,
+    h: 3.7,
+    fontFace: "Aptos",
+    fontSize: 16,
+    color: C.navy,
+    border: { type: "solid", color: C.line, pt: 0.7 },
+    fill: C.white,
+    margin: 0.12,
+    colW: [4.05, 1.45],
+    rowH: 0.52,
+  });
   slide.addText(
-    insights.map((insight, index) => ({
-      text: `${index + 1}. ${insight}`,
-      options: { breakLine: true },
-    })),
+    [
+      {
+        text: "Premium definition\n",
+        options: { bold: true, color: C.teal, breakLine: true },
+      },
+      {
+        text: "transaction_amount is treated as premium.\n\n",
+        options: { breakLine: true },
+      },
+      {
+        text: "Policy rule\n",
+        options: { bold: true, color: C.teal, breakLine: true },
+      },
+      {
+        text: "Only New and Renewal values are included; unrelated values such as GMC are excluded.\n\n",
+        options: { breakLine: true },
+      },
+      {
+        text: "Decision rule\n",
+        options: { bold: true, color: C.teal, breakLine: true },
+      },
+      {
+        text: "Suitability scores compare observed premium, enrolment, batch reach and cover participation. Benefits, exclusions, claims service and price terms still require commercial review.",
+        options: {},
+      },
+    ],
     {
-      x: 0.75,
-      y: 1.5,
-      w: 11.7,
-      h: 4.9,
+      x: 6.65,
+      y: 1.62,
+      w: 5.95,
+      h: 4.45,
       fontSize: 16,
       color: C.navy,
-      breakLine: true,
-      margin: 0.15,
+      fill: { color: C.pale },
+      line: { color: C.line, pt: 1 },
+      margin: 0.25,
       valign: "top",
+      fit: "shrink",
     },
   );
 
