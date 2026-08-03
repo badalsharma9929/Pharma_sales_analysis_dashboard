@@ -2,17 +2,22 @@
 
 import React, { useMemo, useState } from "react";
 import "./dashboard.css";
+import "./comparison.css";
 import ChartPanel from "./dashboard/chart-panel";
 import { exportExcel, exportPowerPoint } from "./dashboard/exporters";
 import { displayDate, money, Result, UploadGroup } from "./dashboard/types";
 
 export default function Home() {
   const [college, setCollege] = useState("");
-  const [groups, setGroups] = useState<UploadGroup[]>([
-    { name: "Data Set 1", files: [] },
-    { name: "Data Set 2", files: [] },
-    { name: "Data Set 3", files: [] },
-  ]);
+  const [policyName, setPolicyName] = useState("");
+  const [groups, setGroups] = useState<UploadGroup[]>(() => {
+    const currentYear = new Date().getFullYear();
+    return [
+      { name: "Previous-year report", year: String(currentYear - 1), files: [] },
+      { name: "Current-year report", year: String(currentYear), files: [] },
+      { name: "Older history (optional)", year: "", files: [] },
+    ];
+  });
   const [password, setPassword] = useState("");
   const [result, setResult] = useState<Result | null>(null);
   const [selectedView, setSelectedView] = useState("all");
@@ -35,6 +40,8 @@ export default function Home() {
     selectedView === "all"
       ? result?.kpis
       : result?.kpis_by_plan?.[selectedView] || result?.kpis;
+  const comparisonSummary = viewAnalysis?.comparison_summary || [];
+  const forecastSummary = viewAnalysis?.forecast_summary || [];
 
   const sourceRows = useMemo(() => {
     if (!result) return [];
@@ -72,10 +79,27 @@ export default function Home() {
 
   async function analyze() {
     const flattened = groups.flatMap((group) =>
-      group.files.map((file) => ({ file, label: group.name })),
+      group.files.map((file) => ({
+        file,
+        label: policyName.trim() || "Same Uploaded Policy",
+        year: group.year.trim(),
+      })),
     );
-    if (!flattened.length) {
-      setError("Upload at least one Excel file.");
+    const uploadedGroups = groups.filter((group) => group.files.length);
+    if (uploadedGroups.length < 2) {
+      setError("Upload both the previous-year and current-year reports.");
+      return;
+    }
+    if (
+      uploadedGroups.some(
+        (group) => !/^(?:19|20)\d{2}$/.test(group.year.trim()),
+      )
+    ) {
+      setError("Enter a valid four-digit report year for every uploaded report.");
+      return;
+    }
+    if (new Set(uploadedGroups.map((group) => group.year.trim())).size < 2) {
+      setError("The two reports must use different comparison years.");
       return;
     }
 
@@ -90,6 +114,10 @@ export default function Home() {
       form.append(
         "file_labels",
         JSON.stringify(flattened.map(({ label }) => label)),
+      );
+      form.append(
+        "file_years",
+        JSON.stringify(flattened.map(({ year }) => year)),
       );
       form.append("college_name", college);
       form.append("password", password);
@@ -170,66 +198,102 @@ export default function Home() {
     <main>
       <header className="hero">
         <div>
-          <span className="eyebrow">MULTI-YEAR • MULTI-PLAN EXCEL ANALYTICS</span>
-          <h1>Insurance Business Insights Dashboard</h1>
+          <span className="eyebrow">SAME COLLEGE • SAME POLICY • YEAR-ON-YEAR</span>
+          <h1>College Policy Comparison & Forecast Dashboard</h1>
           <p>
-            Upload current and previous-year files for up to three plan data sets.
-            Plan names are detected automatically from the <b>plan_name</b> column,
-            and transaction_amount is treated as the premium amount.
+            Compare two reports for the same college and policy—for example,
+            IIM Policy 2025 versus IIM Policy 2026. The report year you select
+            keeps both files comparable even when their workbook layouts or plan-name
+            capitalization differ.
           </p>
         </div>
         <div className="privacy">🔒 Files are processed only for this request</div>
       </header>
 
       <section className="setupCard">
-        <div className="collegeInput">
-          <label>College / Institute name</label>
-          <input
-            value={college}
-            onChange={(event) => setCollege(event.target.value)}
-            placeholder="Enter college name"
-          />
-        </div>
-        <div className="password">
-          <label>Common Excel password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Enter the common password"
-          />
+        <div className="setupFields">
+          <div className="collegeInput">
+            <label>College / Institute name</label>
+            <input
+              value={college}
+              onChange={(event) => setCollege(event.target.value)}
+              placeholder="Example: IIM"
+            />
+          </div>
+          <div className="collegeInput">
+            <label>Same policy / plan name</label>
+            <input
+              value={policyName}
+              onChange={(event) => setPolicyName(event.target.value)}
+              placeholder="Example: IIM Policy"
+            />
+          </div>
+          <div className="password">
+            <label>Excel password (only if protected)</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Optional"
+            />
+          </div>
         </div>
 
         <div className="planUploads">
           {groups.map((group, index) => (
             <article className="planUpload" key={index}>
               <div className="dataSetTitle">
-                <strong>Data set {index + 1}</strong>
-                <span>Plan name will be read from plan_name</span>
+                <strong>{group.name}</strong>
+                <span>
+                  {index < 2
+                    ? "Required for year-on-year comparison"
+                    : "Add a third year to improve forecast confidence"}
+                </span>
               </div>
+              <label className="yearField" htmlFor={`year-${index}`}>
+                Report year
+                <input
+                  id={`year-${index}`}
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={group.year}
+                  onChange={(event) =>
+                    updateGroup(index, {
+                      year: event.target.value.replace(/\D/g, "").slice(0, 4),
+                    })
+                  }
+                  placeholder="YYYY"
+                />
+              </label>
               <input
                 id={`files-${index}`}
                 type="file"
                 multiple
-                accept=".xlsx,.xlsm,.xls"
+                accept=".xlsx,.xlsm,.xls,.csv"
                 onChange={(event) =>
                   updateGroup(index, {
                     files: Array.from(event.target.files || []),
                   })
                 }
               />
-              <label htmlFor={`files-${index}`}>
-                <b>Upload current and previous-year files</b>
+              <label className="fileDrop" htmlFor={`files-${index}`}>
+                <b>{group.files.length ? "Report selected" : "Choose report file"}</b>
                 <span>
                   {group.files.length
                     ? `${group.files.length} file(s): ${group.files
                         .map((file) => file.name)
                         .join(", ")}`
-                    : "Multiple years and multiple files are supported"}
+                    : "Excel or CSV • multiple files for this year are allowed"}
                 </span>
               </label>
             </article>
           ))}
+        </div>
+
+        <div className="comparisonRule">
+          <b>How matching works:</b> both required uploads are treated as the same
+          policy. The selected report years drive the comparison; transaction dates
+          are still used for monthly analysis when available.
         </div>
 
         <button
@@ -237,7 +301,7 @@ export default function Home() {
           onClick={analyze}
           disabled={loading}
         >
-          {loading ? "Analysing…" : "Generate College Comparison"}
+          {loading ? "Comparing reports & forecasting…" : "Compare Reports & Forecast"}
         </button>
         {error && <div className="error">{error}</div>}
       </section>
@@ -322,7 +386,7 @@ export default function Home() {
             </ol>
           </section>
 
-          {selectedView === "all" &&
+          {selectedView === "all" && plans.length > 1 &&
             !!result.analysis.plan_recommendation?.length && (
               <section className="recommendations">
                 <div>
@@ -360,6 +424,55 @@ export default function Home() {
             </h2>
           </section>
 
+          {!!comparisonSummary.length && (
+            <section className="comparisonTable">
+              <div className="comparisonHeading">
+                <div>
+                  <span className="eyebrow">EXACT CHANGE</span>
+                  <h3>{previousYear} → {currentYear} comparison</h3>
+                </div>
+                <span>Positive values indicate growth; negative values indicate decline.</span>
+              </div>
+              <div className="tableWrap comparisonWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Metric</th>
+                      <th>{previousYear}</th>
+                      <th>{currentYear}</th>
+                      <th>Absolute change</th>
+                      <th>% change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comparisonSummary.map((row) => {
+                      const format = (value: unknown) =>
+                        row.format === "currency"
+                          ? money(value)
+                          : Number(value || 0).toLocaleString("en-IN");
+                      const percentage = row.percentage_change;
+                      return (
+                        <tr key={row.label}>
+                          <td><b>{row.label}</b></td>
+                          <td>{format(row.previous)}</td>
+                          <td>{format(row.current)}</td>
+                          <td className={Number(row.change) >= 0 ? "positive" : "negative"}>
+                            {Number(row.change) > 0 ? "+" : ""}{format(row.change)}
+                          </td>
+                          <td className={Number(percentage) >= 0 ? "positive" : "negative"}>
+                            {percentage === null || percentage === undefined
+                              ? "Not comparable"
+                              : `${Number(percentage) > 0 ? "+" : ""}${Number(percentage).toFixed(1)}%`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
           <section className="gridCharts">
             <ChartPanel
               title={`${currentYear} vs ${previousYear}`}
@@ -393,8 +506,48 @@ export default function Home() {
               initialMetric="amount"
               chronological
             />
+            {!!viewAnalysis.policy_year_comparison?.length && (
+              <ChartPanel
+                title="New vs Renewal by report year"
+                subtitle={`Policy mix in ${previousYear} compared with ${currentYear}`}
+                data={viewAnalysis.policy_year_comparison}
+                initialType="bar"
+                initialMetric="count"
+                multiSeries
+              />
+            )}
+            {!!viewAnalysis.course_year_comparison?.length && (
+              <ChartPanel
+                title="Course mix by report year"
+                subtitle={`Course-level participation in ${previousYear} and ${currentYear}`}
+                data={viewAnalysis.course_year_comparison}
+                initialType="bar"
+                initialMetric="count"
+                multiSeries
+              />
+            )}
+            {!!viewAnalysis.passing_year_comparison?.length && (
+              <ChartPanel
+                title="Batch mix by report year"
+                subtitle={`Batch participation movement from ${previousYear} to ${currentYear}`}
+                data={viewAnalysis.passing_year_comparison}
+                initialType="bar"
+                initialMetric="count"
+                multiSeries
+              />
+            )}
+            {!!viewAnalysis.sum_insured_year_comparison?.length && (
+              <ChartPanel
+                title="Sum insured by report year"
+                subtitle={`Cover preference in ${previousYear} and ${currentYear}`}
+                data={viewAnalysis.sum_insured_year_comparison}
+                initialType="bar"
+                initialMetric="count"
+                multiSeries
+              />
+            )}
 
-            {selectedView === "all" && (
+            {selectedView === "all" && plans.length > 1 && (
               <>
                 <ChartPanel
                   title="Current vs previous year by plan"
@@ -454,6 +607,100 @@ export default function Home() {
               </>
             )}
           </section>
+
+          {!!forecastSummary.length && (
+            <>
+              <section className="sectionTitle forecastTitle">
+                <span className="eyebrow">FUTURE FORECAST</span>
+                <h2>{viewLabel}: next 3 years and next 12 months</h2>
+                <p>
+                  Forecasts extend the cleaned historical trend. With only two report
+                  years, confidence is intentionally shown as low and the result should
+                  be used for planning—not as a guaranteed outcome.
+                </p>
+              </section>
+
+              <section className="forecastKpis">
+                <article>
+                  <span>Next forecast year</span>
+                  <strong>{viewKpis.forecast_year}</strong>
+                </article>
+                <article>
+                  <span>Forecast premium</span>
+                  <strong>{money(viewKpis.forecast_premium)}</strong>
+                </article>
+                <article>
+                  <span>Forecast enrolments</span>
+                  <strong>{Number(viewKpis.forecast_enrolments || 0).toLocaleString("en-IN")}</strong>
+                </article>
+                <article>
+                  <span>Forecast confidence</span>
+                  <strong className={`confidence ${String(viewKpis.forecast_confidence).toLowerCase()}`}>
+                    {String(viewKpis.forecast_confidence)}
+                  </strong>
+                </article>
+              </section>
+
+              <section className="gridCharts">
+                <ChartPanel
+                  title="Annual actual vs forecast"
+                  subtitle="Three-year directional projection based only on uploaded history"
+                  data={viewAnalysis.annual_forecast || []}
+                  initialType="line"
+                  initialMetric="amount"
+                  multiSeries
+                  chronological
+                />
+                <ChartPanel
+                  title="Monthly actual vs forecast"
+                  subtitle="Last 12 observed months and next 12 projected months"
+                  data={viewAnalysis.monthly_forecast || []}
+                  initialType="line"
+                  initialMetric="amount"
+                  multiSeries
+                  chronological
+                />
+              </section>
+
+              <section className="comparisonTable forecastTable">
+                <div className="comparisonHeading">
+                  <div>
+                    <span className="eyebrow">PLANNING RANGE</span>
+                    <h3>Three-year forecast table</h3>
+                  </div>
+                  <span>{result.meta.forecast_method} • {result.meta.forecast_confidence} confidence</span>
+                </div>
+                <div className="tableWrap comparisonWrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Forecast year</th>
+                        <th>Premium</th>
+                        <th>Likely range</th>
+                        <th>Enrolments</th>
+                        <th>Growth vs prior year</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {forecastSummary.map((row) => (
+                        <tr key={row.label}>
+                          <td><b>{row.label}</b></td>
+                          <td>{money(row.amount)}</td>
+                          <td>{money(row.amount_low)} – {money(row.amount_high)}</td>
+                          <td>{Number(row.count || 0).toLocaleString("en-IN")}</td>
+                          <td className={Number(row.growth_rate) >= 0 ? "positive" : "negative"}>
+                            {row.growth_rate === null || row.growth_rate === undefined
+                              ? "Not comparable"
+                              : `${Number(row.growth_rate) > 0 ? "+" : ""}${Number(row.growth_rate).toFixed(1)}%`}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </>
+          )}
 
           <section className="sectionTitle">
             <span className="eyebrow">PORTFOLIO ANALYSIS</span>
@@ -664,6 +911,14 @@ export default function Home() {
                 [
                   "Duplicate transaction IDs removed",
                   result.data_quality.duplicate_transaction_ids_removed,
+                ],
+                [
+                  "Rows assigned to selected report years",
+                  result.data_quality.report_year_overrides_applied,
+                ],
+                [
+                  "Dates inferred from report year",
+                  result.data_quality.dates_inferred_from_report_year,
                 ],
                 ["Final export rows", result.data_quality.final_rows],
               ].map(([label, value]) => (

@@ -16,6 +16,7 @@ async def analyze(
     files: list[UploadFile] = File(...),
     password: str = Form(""),
     file_labels: str = Form("[]"),
+    file_years: str = Form("[]"),
     college_name: str = Form(""),
 ):
     try:
@@ -25,9 +26,21 @@ async def analyze(
     except json.JSONDecodeError:
         labels = []
 
-    raw_rows, logs = await extract_rows(files, password, labels, college_name)
+    try:
+        years = json.loads(file_years)
+        if not isinstance(years, list):
+            years = []
+    except json.JSONDecodeError:
+        years = []
+
+    raw_rows, logs = await extract_rows(
+        files, password, labels, college_name, years
+    )
     if not raw_rows:
-        raise HTTPException(400, "No usable data sheet was found")
+        raise HTTPException(
+            400,
+            "No usable data sheet was found. Select a report year and ensure the workbook contains a premium/amount column.",
+        )
 
     rows, has_policy, cleaning = clean_rows(raw_rows)
     if not rows:

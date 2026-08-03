@@ -28,7 +28,17 @@ import {
   money,
 } from "./types";
 
-function Hover({ active, payload, label, metric }: any) {
+function Hover({
+  active,
+  payload,
+  label,
+  metric,
+}: {
+  active?: boolean;
+  payload?: any[];
+  label?: unknown;
+  metric: Metric;
+}) {
   if (!active || !payload?.length) return null;
 
   return (
@@ -131,13 +141,13 @@ export default function ChartPanel({
         const item = visible.find(
           (row) => row.label === label && String(row.series || "Data") === series,
         );
-        record[series] = Number(item?.[metric] || 0);
+        record[series] = item ? Number(item[metric] || 0) : null;
         record.__details[series] = item || {};
       });
     } else {
-      const item = visible.find((row) => row.label === label) || {};
-      record.Data = Number(item[metric] || 0);
-      record.__details.Data = item;
+      const item = visible.find((row) => row.label === label);
+      record.Data = item ? Number(item[metric] || 0) : 0;
+      record.__details.Data = item || {};
     }
     return record;
   });

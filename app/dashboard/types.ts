@@ -38,6 +38,8 @@ export type Result = {
     current_year?: string;
     previous_year?: string;
     premium_definition?: string;
+    forecast_method?: string;
+    forecast_confidence?: string;
   };
   kpis: Record<string, number | string>;
   kpis_by_plan?: Record<string, Record<string, number | string>>;
@@ -50,7 +52,7 @@ export type Result = {
   data_quality: Record<string, any>;
 };
 
-export type UploadGroup = { name: string; files: File[] };
+export type UploadGroup = { name: string; year: string; files: File[] };
 
 export const COLORS = [
   "#0a6a61",

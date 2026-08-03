@@ -26,6 +26,11 @@ def _kpis(rows, analysis):
     recommendation = analysis.get("plan_recommendation", [])
     sums = analysis.get("sum_insured", [])
     batches = analysis.get("passing_year", [])
+    forecast = analysis.get("forecast_summary", [])
+    forecast_meta = {
+        str(row.get("label")): row.get("value")
+        for row in analysis.get("forecast_methodology", [])
+    }
 
     current = yearly[-1] if yearly else None
     previous = yearly[-2] if len(yearly) >= 2 else None
@@ -57,6 +62,11 @@ def _kpis(rows, analysis):
         "previous_year_premium": previous["amount"] if previous else 0,
         "current_year_enrolments": current["count"] if current else 0,
         "previous_year_enrolments": previous["count"] if previous else 0,
+        "forecast_year": forecast[0]["label"] if forecast else "Not available",
+        "forecast_premium": forecast[0]["amount"] if forecast else 0,
+        "forecast_enrolments": forecast[0]["count"] if forecast else 0,
+        "forecast_growth_rate": forecast[0].get("growth_rate") if forecast else None,
+        "forecast_confidence": forecast_meta.get("Confidence", "Low"),
     }
 
 
@@ -107,6 +117,21 @@ def _insights(rows, analysis, college: str, scope_name: str | None = None):
             insights.append(
                 f"The strongest month in {previous['label']} was {peak['label']} with "
                 f"₹{peak['amount']:,.0f} premium from {peak['count']} enrolments."
+            )
+
+        forecast = analysis.get("forecast_summary", [])
+        if forecast:
+            next_year = forecast[0]
+            growth = next_year.get("growth_rate")
+            movement = (
+                f"{abs(growth):.1f}% {'growth' if growth >= 0 else 'decline'}"
+                if growth is not None
+                else "a directional continuation of the observed trend"
+            )
+            insights.append(
+                f"The directional forecast for {next_year['label']} is "
+                f"₹{next_year['amount']:,.0f} premium and {next_year['count']} enrolments, "
+                f"equivalent to {movement}; confidence is {next_year.get('confidence', 'Low').lower()}."
             )
     elif yearly:
         only = yearly[0]
@@ -256,6 +281,8 @@ def build_response(
             "current_year": current_year,
             "previous_year": previous_year,
             "premium_definition": "transaction_amount",
+            "forecast_method": "Least-squares trend with monthly seasonality",
+            "forecast_confidence": kpis.get("forecast_confidence", "Low"),
         },
         "kpis": kpis,
         "kpis_by_plan": kpis_by_plan,
