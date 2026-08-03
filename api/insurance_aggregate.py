@@ -605,7 +605,7 @@ def build_analysis(rows):
 
 
 def build_single_business_trends(rows):
-    """Additional exact-frequency trends used only by Single Report Analysis."""
+    """Exact-frequency and cover cross-tabs shared by both analysis modes."""
     counters = {
         "premium_amounts": Counter(),
         "gender": Counter(),
@@ -613,9 +613,13 @@ def build_single_business_trends(rows):
         "payment_modes": Counter(),
     }
     amounts = {key: defaultdict(float) for key in counters}
+    gender_sum_insured = defaultdict(lambda: [0, 0.0])
+    batch_sum_insured = defaultdict(lambda: [0, 0.0])
 
     for item in rows:
         premium = float(item["amount"])
+        # Blank and zero amounts remain in the requested cleaned export, but they
+        # are not meaningful premium-frequency values.
         if premium > 0:
             premium_label = (
                 f"₹{premium:,.0f}" if premium.is_integer() else f"₹{premium:,.2f}"
@@ -632,9 +636,26 @@ def build_single_business_trends(rows):
                 counters[key][value] += 1
                 amounts[key][value] += premium
 
+        if item.get("sum_insured") and item["sum_insured"] > 0:
+            cover = f"₹{item['sum_insured']:,.0f}"
+            if item.get("gender"):
+                gender_sum_insured[(item["gender"], cover)][0] += 1
+                gender_sum_insured[(item["gender"], cover)][1] += premium
+            if item.get("passing_year"):
+                batch_sum_insured[(item["passing_year"], cover)][0] += 1
+                batch_sum_insured[(item["passing_year"], cover)][1] += premium
+
     result = {}
     for key in counters:
         result[key] = grouped(counters[key], amounts[key], amounts[key])
         for row in result[key]:
             row["average"] = round(row["amount"] / row["count"], 2)
+    result["gender_sum_insured"] = [
+        {"label": cover, "series": gender, "count": values[0], "amount": round(values[1], 2)}
+        for (gender, cover), values in sorted(gender_sum_insured.items())
+    ]
+    result["batch_sum_insured"] = [
+        {"label": cover, "series": batch, "count": values[0], "amount": round(values[1], 2)}
+        for (batch, cover), values in sorted(batch_sum_insured.items())
+    ]
     return result

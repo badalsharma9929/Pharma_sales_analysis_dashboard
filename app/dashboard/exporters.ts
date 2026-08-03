@@ -79,105 +79,14 @@ function safeName(value: string) {
 export async function exportExcel(result: Result, selectedView = "all") {
   const XLSX = await import("xlsx");
   const workbook = XLSX.utils.book_new();
-  const analysis = selectedAnalysis(result, selectedView);
-  const kpis = selectedKpis(result, selectedView);
-  const insights = selectedInsights(result, selectedView);
   const exportRows = selectedRows(result, selectedView);
-  const isComparison = result.meta.analysis_mode === "comparison";
 
-  if (!isComparison) {
-    addSheet(XLSX, workbook, "Cleaned_Data", exportRows, true);
-    const viewName = selectedView === "all" ? "Cleaned" : safeName(selectedView);
-    XLSX.writeFile(
-      workbook,
-      `Insurance_${viewName}_Data_${new Date().toISOString().slice(0, 10)}.xlsx`,
-      { cellDates: true },
-    );
-    return;
-  }
-
-  const analysisRows =
-    selectedView === "all"
-      ? result.analysis_rows
-      : result.analysis_rows.filter(
-          (row) => row.Analysis_Plan === selectedView,
-        );
-
-  addSheet(
-    XLSX,
-    workbook,
-    "Dashboard_Summary",
-    Object.entries(kpis).map(([Metric, Value]) => ({ Metric, Value })),
-  );
-  addSheet(XLSX, workbook, "Export_Data", exportRows, true);
-  addSheet(XLSX, workbook, "Analysis_Data", analysisRows, true);
-
-  const commonSheets: [string, string][] = [
-    ["YoY_Comparison", "comparison_summary"],
-    ["Current_vs_Previous", "latest_vs_previous"],
-    ["Yearly_Trend", "yearly_trend"],
-    ["Month_By_Year", "month_by_year"],
-    ["Monthly_Trend", "monthly_trend"],
-    ["Annual_Forecast", "forecast_summary"],
-    ["Monthly_Forecast", "monthly_forecast"],
-    ["New_Renewal_By_Year", "policy_year_comparison"],
-    ["Cover_By_Year", "sum_insured_year_comparison"],
-    ["Premium_Band_By_Year", "premium_band_year_comparison"],
-    ["State_By_Year", "state_year_comparison"],
-    ["Course_By_Year", "course_year_comparison"],
-    ["Batch_By_Year", "passing_year_comparison"],
-    ["Daily_Trend", "daily_trend"],
-    ["Age_Analysis", "age"],
-    ["State_Analysis", "state"],
-    ["City_Analysis", "city"],
-    ["Pincode_Analysis", "pincode"],
-    ["Passing_Year_Batch", "passing_year"],
-    ["Course_Analysis", "course"],
-    ["Sum_Insured", "sum_insured"],
-    ["Premium_Bands", "premium_bands"],
-    ["Nominee_Relationship", "nominee_relationship"],
-    ["Insurance_Products", "insurance_products"],
-    ["Insurers", "insurers"],
-  ];
-
-  commonSheets.forEach(([name, key]) =>
-    addSheet(XLSX, workbook, name, analysis[key] || []),
-  );
-
-  if (selectedView === "all") {
-    const comparisonSheets: [string, string][] = [
-      ["Current_Previous_By_Plan", "latest_vs_previous_by_plan"],
-      ["Plan_Comparison", "plan_comparison"],
-      ["Plan_Recommendation", "plan_recommendation"],
-      ["Plan_Year", "plan_year_comparison"],
-      ["Plan_Month", "plan_month_comparison"],
-      ["Plan_Sum_Insured", "plan_sum_insured"],
-      ["Plan_Batch", "plan_batch_comparison"],
-    ];
-    comparisonSheets.forEach(([name, key]) =>
-      addSheet(XLSX, workbook, name, result.analysis[key] || []),
-    );
-  }
-
-  addSheet(
-    XLSX,
-    workbook,
-    "Business_Insights",
-    insights.map((Insight, index) => ({ No: index + 1, Insight })),
-  );
-  addSheet(
-    XLSX,
-    workbook,
-    "Data_Quality",
-    Object.entries(result.data_quality)
-      .filter(([key]) => key !== "processing_log")
-      .map(([Metric, Value]) => ({ Metric, Value })),
-  );
-
-  const viewName = selectedView === "all" ? "Combined" : safeName(selectedView);
+  // Both modes export the same final, audit-ready cleaned dataset only.
+  addSheet(XLSX, workbook, "Cleaned_Data", exportRows, true);
+  const viewName = selectedView === "all" ? "Cleaned" : safeName(selectedView);
   XLSX.writeFile(
     workbook,
-    `Insurance_${viewName}_Analysis_${new Date().toISOString().slice(0, 10)}.xlsx`,
+    `Insurance_${viewName}_Data_${new Date().toISOString().slice(0, 10)}.xlsx`,
     { cellDates: true },
   );
 }
@@ -790,17 +699,17 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
   const qualityRows = [
     ["Rows received", result.data_quality.rows_before_cleaning],
     ["Invalid transaction dates removed", result.data_quality.invalid_dates_removed],
+    ...(!isComparison
+      ? [[
+          "Blank or zero premiums removed",
+          result.data_quality.blank_or_zero_premiums_removed || 0,
+        ]]
+      : []),
     ["Exact duplicates removed", result.data_quality.exact_duplicates_removed],
     [
       "Duplicate transaction IDs removed",
       result.data_quality.duplicate_transaction_ids_removed,
     ],
-    ...(!isComparison
-      ? [[
-          "Repeated member/email/Care Email rows removed",
-          result.data_quality.duplicate_member_email_rows_removed || 0,
-        ]]
-      : []),
     [
       "Rows assigned to selected report years",
       result.data_quality.report_year_overrides_applied,
