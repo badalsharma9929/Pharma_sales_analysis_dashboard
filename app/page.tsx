@@ -10,12 +10,22 @@ import { displayDate, money, Result, UploadGroup } from "./dashboard/types";
 export default function Home() {
   const [college, setCollege] = useState("");
   const [policyName, setPolicyName] = useState("");
+  const [analysisMode, setAnalysisMode] = useState<"single" | "comparison">(
+    "single",
+  );
+  const [resultMode, setResultMode] = useState<"single" | "comparison">(
+    "single",
+  );
   const [groups, setGroups] = useState<UploadGroup[]>(() => {
     const currentYear = new Date().getFullYear();
     return [
-      { name: "Previous-year report", year: String(currentYear - 1), files: [] },
-      { name: "Current-year report", year: String(currentYear), files: [] },
-      { name: "Older history (optional)", year: "", files: [] },
+      { name: "Main report", year: String(currentYear), files: [] },
+      {
+        name: "Comparison report (optional)",
+        year: String(currentYear - 1),
+        files: [],
+      },
+      { name: "Additional history (optional)", year: "", files: [] },
     ];
   });
   const [password, setPassword] = useState("");
@@ -79,16 +89,26 @@ export default function Home() {
     );
 
   async function analyze() {
-    const flattened = groups.flatMap((group) =>
+    const requestedMode = analysisMode;
+    const selectedGroups = requestedMode === "single" ? groups.slice(0, 1) : groups;
+    const flattened = selectedGroups.flatMap((group) =>
       group.files.map((file) => ({
         file,
-        label: policyName.trim() || "Same Uploaded Policy",
+        label:
+          policyName.trim() ||
+          (requestedMode === "comparison"
+            ? "Same Uploaded Policy"
+            : "Unspecified Plan"),
         year: group.year.trim(),
       })),
     );
-    const uploadedGroups = groups.filter((group) => group.files.length);
-    if (uploadedGroups.length < 2) {
-      setError("Upload both the previous-year and current-year reports.");
+    const uploadedGroups = selectedGroups.filter((group) => group.files.length);
+    if (!groups[0].files.length) {
+      setError("Upload the main report to analyse and forecast.");
+      return;
+    }
+    if (requestedMode === "comparison" && !groups[1].files.length) {
+      setError("Upload the optional comparison report or switch to Single Report Analysis.");
       return;
     }
     if (
@@ -99,7 +119,10 @@ export default function Home() {
       setError("Enter a valid four-digit report year for every uploaded report.");
       return;
     }
-    if (new Set(uploadedGroups.map((group) => group.year.trim())).size < 2) {
+    if (
+      requestedMode === "comparison" &&
+      new Set(uploadedGroups.map((group) => group.year.trim())).size < 2
+    ) {
       setError("The two reports must use different comparison years.");
       return;
     }
@@ -147,7 +170,11 @@ export default function Home() {
         preparedTokens.push(await preparedResponse.blob());
       }
 
-      setProcessingStatus("Combining both years and calculating forecasts…");
+      setProcessingStatus(
+        requestedMode === "comparison"
+          ? "Combining reports, calculating comparisons and forecasting…"
+          : "Analysing the report and calculating forecasts…",
+      );
       const combinedForm = new FormData();
       preparedTokens.forEach((token, index) =>
         combinedForm.append("tokens", token, `prepared-report-${index + 1}.bin`),
@@ -173,11 +200,17 @@ export default function Home() {
         throw new Error(
           data.detail ||
             (response.status === 413
-              ? "The prepared comparison is still too large. Split the larger workbook into two files for the same report year and select both parts together."
+              ? requestedMode === "comparison"
+                ? "The prepared comparison is still too large. Split the larger workbook into two files for the same report year and select both parts together."
+                : "The prepared report is still too large. Split the workbook into smaller files for the same report year and select them together."
               : `Unable to process workbook (${response.status}). Please verify the file and password.`),
         );
       }
-      setResult(data);
+      setResultMode(requestedMode);
+      setResult({
+        ...data,
+        meta: { ...data.meta, analysis_mode: requestedMode },
+      });
     } catch (exception: any) {
       setError(exception.message || "Processing failed.");
     } finally {
@@ -225,7 +258,13 @@ export default function Home() {
     }
   }
 
-  const viewLabel = selectedView === "all" ? "Combined comparison" : selectedView;
+  const isComparisonResult = resultMode === "comparison";
+  const viewLabel =
+    selectedView === "all"
+      ? isComparisonResult
+        ? "Combined comparison"
+        : "Portfolio analysis"
+      : selectedView;
   const currentYear = String(viewKpis?.current_year || "Current year");
   const previousYear = String(viewKpis?.previous_year || "Previous year");
 
@@ -233,19 +272,43 @@ export default function Home() {
     <main>
       <header className="hero">
         <div>
-          <span className="eyebrow">SAME COLLEGE • SAME POLICY • YEAR-ON-YEAR</span>
-          <h1>College Policy Comparison & Forecast Dashboard</h1>
+          <span className="eyebrow">SINGLE REPORT OR OPTIONAL COMPARISON</span>
+          <h1>College Policy Analysis & Forecast Dashboard</h1>
           <p>
-            Compare two reports for the same college and policy—for example,
-            IIM Policy 2025 versus IIM Policy 2026. The report year you select
-            keeps both files comparable even when their workbook layouts or plan-name
-            capitalization differ.
+            Upload one report for complete analysis and future forecasting. When you
+            need a year-on-year comparison, switch modes and add a second report for
+            the same college and policy.
           </p>
         </div>
         <div className="privacy">🔒 Files are processed only for this request</div>
       </header>
 
       <section className="setupCard">
+        <div className="modeSelector" role="group" aria-label="Analysis type">
+          <button
+            type="button"
+            className={analysisMode === "single" ? "active" : ""}
+            onClick={() => {
+              setAnalysisMode("single");
+              setError("");
+            }}
+          >
+            <b>Single Report Analysis</b>
+            <span>One file • full analysis • future forecast</span>
+          </button>
+          <button
+            type="button"
+            className={analysisMode === "comparison" ? "active" : ""}
+            onClick={() => {
+              setAnalysisMode("comparison");
+              setError("");
+            }}
+          >
+            <b>Compare Two Reports</b>
+            <span>Optional mode • year-on-year comparison • forecast</span>
+          </button>
+        </div>
+
         <div className="setupFields">
           <div className="collegeInput">
             <label>College / Institute name</label>
@@ -256,7 +319,11 @@ export default function Home() {
             />
           </div>
           <div className="collegeInput">
-            <label>Same policy / plan name</label>
+            <label>
+              {analysisMode === "comparison"
+                ? "Same policy / plan name"
+                : "Policy / plan name (optional)"}
+            </label>
             <input
               value={policyName}
               onChange={(event) => setPolicyName(event.target.value)}
@@ -275,14 +342,17 @@ export default function Home() {
         </div>
 
         <div className="planUploads">
-          {groups.map((group, index) => (
+          {(analysisMode === "single" ? groups.slice(0, 1) : groups).map(
+            (group, index) => (
             <article className="planUpload" key={index}>
               <div className="dataSetTitle">
                 <strong>{group.name}</strong>
                 <span>
-                  {index < 2
-                    ? "Required for year-on-year comparison"
-                    : "Add a third year to improve forecast confidence"}
+                  {analysisMode === "single"
+                    ? "Required for analysis and future forecasting"
+                    : index < 2
+                      ? "Required only in comparison mode"
+                      : "Add an older year to improve forecast confidence"}
                 </span>
               </div>
               <label className="yearField" htmlFor={`year-${index}`}>
@@ -322,13 +392,24 @@ export default function Home() {
                 </span>
               </label>
             </article>
-          ))}
+            ),
+          )}
         </div>
 
         <div className="comparisonRule">
-          <b>How matching works:</b> both required uploads are treated as the same
-          policy. The selected report years drive the comparison; transaction dates
-          are still used for monthly analysis when available.
+          {analysisMode === "comparison" ? (
+            <>
+              <b>Comparison mode:</b> the first two uploads are treated as the same
+              policy. Their selected report years drive the comparison, while
+              transaction dates support monthly analysis.
+            </>
+          ) : (
+            <>
+              <b>Single-report mode:</b> no previous-year report is required. The
+              dashboard analyses the uploaded file and produces directional annual
+              and monthly forecasts from the history available inside it.
+            </>
+          )}
         </div>
 
         <button
@@ -336,7 +417,13 @@ export default function Home() {
           onClick={analyze}
           disabled={loading}
         >
-          {loading ? "Comparing reports & forecasting…" : "Compare Reports & Forecast"}
+          {loading
+            ? analysisMode === "comparison"
+              ? "Comparing reports & forecasting…"
+              : "Analysing report & forecasting…"
+            : analysisMode === "comparison"
+              ? "Compare Reports & Forecast"
+              : "Analyse Report & Forecast"}
         </button>
         {loading && processingStatus && (
           <div className="processingStatus" role="status">
@@ -376,14 +463,18 @@ export default function Home() {
           <section className="viewSwitcher">
             <div>
               <span className="eyebrow">ANALYSIS VIEW</span>
-              <h2>Switch between individual plans and combined comparison</h2>
+              <h2>
+                {isComparisonResult
+                  ? "Switch between individual plans and combined comparison"
+                  : "Switch between the full portfolio and individual plans"}
+              </h2>
             </div>
             <div className="viewButtons">
               <button
                 className={selectedView === "all" ? "active" : ""}
                 onClick={() => setSelectedView("all")}
               >
-                Combined comparison
+                {isComparisonResult ? "Combined comparison" : "All plans"}
               </button>
               {plans.map((plan) => (
                 <button
@@ -402,8 +493,10 @@ export default function Home() {
               ["Clean records", viewKpis.total_records],
               ["Premium collected", money(viewKpis.total_premium)],
               ["Average premium", money(viewKpis.average_premium)],
-              ["Current year", viewKpis.current_year],
-              ["Previous year", viewKpis.previous_year],
+              [isComparisonResult ? "Current year" : "Report year", viewKpis.current_year],
+              ...(isComparisonResult
+                ? [["Previous year", viewKpis.previous_year]]
+                : []),
               ["Most selected sum insured", viewKpis.most_selected_sum_insured],
               ["Top batch", viewKpis.top_batch],
             ].map(([label, value]) => (
@@ -457,14 +550,16 @@ export default function Home() {
               </section>
             )}
 
-          <section className="sectionTitle">
-            <span className="eyebrow">CURRENT VS PREVIOUS YEAR</span>
-            <h2>
-              {viewLabel}: {currentYear} analysis versus {previousYear}
-            </h2>
-          </section>
+          {isComparisonResult && (
+            <section className="sectionTitle">
+              <span className="eyebrow">CURRENT VS PREVIOUS YEAR</span>
+              <h2>
+                {viewLabel}: {currentYear} analysis versus {previousYear}
+              </h2>
+            </section>
+          )}
 
-          {!!comparisonSummary.length && (
+          {isComparisonResult && !!comparisonSummary.length && (
             <section className="comparisonTable">
               <div className="comparisonHeading">
                 <div>
@@ -514,22 +609,26 @@ export default function Home() {
           )}
 
           <section className="gridCharts">
-            <ChartPanel
-              title={`${currentYear} vs ${previousYear}`}
-              subtitle="Switch between premium, enrolments and average premium"
-              data={viewAnalysis.latest_vs_previous || []}
-              initialType="bar"
-              initialMetric="amount"
-              chronological
-            />
-            <ChartPanel
-              title="Month-by-year comparison"
-              subtitle="January–December performance for every uploaded year"
-              data={viewAnalysis.month_by_year || []}
-              initialType="line"
-              initialMetric="amount"
-              multiSeries
-            />
+            {isComparisonResult && (
+              <>
+                <ChartPanel
+                  title={`${currentYear} vs ${previousYear}`}
+                  subtitle="Switch between premium, enrolments and average premium"
+                  data={viewAnalysis.latest_vs_previous || []}
+                  initialType="bar"
+                  initialMetric="amount"
+                  chronological
+                />
+                <ChartPanel
+                  title="Month-by-year comparison"
+                  subtitle="January–December performance for every uploaded year"
+                  data={viewAnalysis.month_by_year || []}
+                  initialType="line"
+                  initialMetric="amount"
+                  multiSeries
+                />
+              </>
+            )}
             <ChartPanel
               title="Full year-wise trend"
               subtitle="Premium and enrolment movement across all uploaded years"
@@ -546,7 +645,7 @@ export default function Home() {
               initialMetric="amount"
               chronological
             />
-            {!!viewAnalysis.policy_year_comparison?.length && (
+            {isComparisonResult && !!viewAnalysis.policy_year_comparison?.length && (
               <ChartPanel
                 title="New vs Renewal by report year"
                 subtitle={`Policy mix in ${previousYear} compared with ${currentYear}`}
@@ -556,7 +655,7 @@ export default function Home() {
                 multiSeries
               />
             )}
-            {!!viewAnalysis.course_year_comparison?.length && (
+            {isComparisonResult && !!viewAnalysis.course_year_comparison?.length && (
               <ChartPanel
                 title="Course mix by report year"
                 subtitle={`Course-level participation in ${previousYear} and ${currentYear}`}
@@ -566,7 +665,7 @@ export default function Home() {
                 multiSeries
               />
             )}
-            {!!viewAnalysis.passing_year_comparison?.length && (
+            {isComparisonResult && !!viewAnalysis.passing_year_comparison?.length && (
               <ChartPanel
                 title="Batch mix by report year"
                 subtitle={`Batch participation movement from ${previousYear} to ${currentYear}`}
@@ -576,7 +675,7 @@ export default function Home() {
                 multiSeries
               />
             )}
-            {!!viewAnalysis.sum_insured_year_comparison?.length && (
+            {isComparisonResult && !!viewAnalysis.sum_insured_year_comparison?.length && (
               <ChartPanel
                 title="Sum insured by report year"
                 subtitle={`Cover preference in ${previousYear} and ${currentYear}`}
@@ -589,14 +688,16 @@ export default function Home() {
 
             {selectedView === "all" && plans.length > 1 && (
               <>
-                <ChartPanel
-                  title="Current vs previous year by plan"
-                  subtitle="Compare each detected plan in the latest two years"
-                  data={result.analysis.latest_vs_previous_by_plan || []}
-                  initialType="bar"
-                  initialMetric="amount"
-                  multiSeries
-                />
+                {isComparisonResult && (
+                  <ChartPanel
+                    title="Current vs previous year by plan"
+                    subtitle="Compare each detected plan in the latest two years"
+                    data={result.analysis.latest_vs_previous_by_plan || []}
+                    initialType="bar"
+                    initialMetric="amount"
+                    multiSeries
+                  />
+                )}
                 <ChartPanel
                   title="Overall plan comparison"
                   subtitle="Premium, enrolments, members, batches and cover participation"
@@ -604,14 +705,16 @@ export default function Home() {
                   initialType="bar"
                   initialMetric="amount"
                 />
-                <ChartPanel
-                  title="Plan performance by year"
-                  subtitle="See which detected plan led in each transaction year"
-                  data={result.analysis.plan_year_comparison || []}
-                  initialType="bar"
-                  initialMetric="amount"
-                  multiSeries
-                />
+                {isComparisonResult && (
+                  <ChartPanel
+                    title="Plan performance by year"
+                    subtitle="See which detected plan led in each transaction year"
+                    data={result.analysis.plan_year_comparison || []}
+                    initialType="bar"
+                    initialMetric="amount"
+                    multiSeries
+                  />
+                )}
                 <ChartPanel
                   title="Monthly premium by plan"
                   subtitle="Track each plan across all uploaded months and years"
@@ -654,9 +757,9 @@ export default function Home() {
                 <span className="eyebrow">FUTURE FORECAST</span>
                 <h2>{viewLabel}: next 3 years and next 12 months</h2>
                 <p>
-                  Forecasts extend the cleaned historical trend. With only two report
-                  years, confidence is intentionally shown as low and the result should
-                  be used for planning—not as a guaranteed outcome.
+                  {isComparisonResult
+                    ? "Forecasts extend the cleaned historical trend. With only two report years, confidence is intentionally shown as low and the result should be used for planning—not as a guaranteed outcome."
+                    : "Forecasts use the history available inside this report. With only one annual data point, the annual result is a baseline directional estimate; monthly projections use the available month-by-month pattern. Use the result for planning, not as a guarantee."}
                 </p>
               </section>
 
