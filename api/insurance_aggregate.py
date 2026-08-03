@@ -602,3 +602,38 @@ def build_analysis(rows):
         ),
     }
     return result
+
+
+def build_single_business_trends(rows):
+    """Additional exact-frequency trends used only by Single Report Analysis."""
+    counters = {
+        "premium_amounts": Counter(),
+        "gender": Counter(),
+        "country": Counter(),
+        "payment_modes": Counter(),
+    }
+    amounts = {key: defaultdict(float) for key in counters}
+
+    for item in rows:
+        premium = float(item["amount"])
+        premium_label = (
+            f"₹{premium:,.0f}" if premium.is_integer() else f"₹{premium:,.2f}"
+        )
+        counters["premium_amounts"][premium_label] += 1
+        amounts["premium_amounts"][premium_label] += premium
+
+        for key, value in [
+            ("gender", item.get("gender")),
+            ("country", item.get("country")),
+            ("payment_modes", item.get("payment_mode")),
+        ]:
+            if value:
+                counters[key][value] += 1
+                amounts[key][value] += premium
+
+    result = {}
+    for key in counters:
+        result[key] = grouped(counters[key], amounts[key], amounts[key])
+        for row in result[key]:
+            row["average"] = round(row["amount"] / row["count"], 2)
+    return result
