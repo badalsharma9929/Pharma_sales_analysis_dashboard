@@ -136,8 +136,14 @@ def _insights(rows, analysis, college: str, scope_name: str | None = None):
     elif yearly:
         only = yearly[0]
         insights.append(
-            f"Only {only['label']} is available for {scope}; upload another year of the same plan data to calculate year-over-year movement."
+            f"The {only['label']} report for {scope} contains {only['count']} enrolments and ₹{only['amount']:,.0f} in premium; no previous-year file was required for this analysis."
         )
+        forecast = analysis.get("forecast_summary", [])
+        if forecast:
+            next_year = forecast[0]
+            insights.append(
+                f"The baseline forecast for {next_year['label']} is ₹{next_year['amount']:,.0f} premium and {next_year['count']} enrolments. Confidence is low because only one report year is available."
+            )
 
     plan_rows = sorted(
         analysis.get("plan_comparison", []),
