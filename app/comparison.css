@@ -1,0 +1,135 @@
+.setupFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+}
+
+.yearField {
+  display: flex !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin-bottom: 10px;
+  border: 0 !important;
+  gap: 6px;
+  color: #667b8e;
+  font-size: 12px;
+}
+
+.yearField input {
+  width: 100%;
+  border: 1px solid #ced9e2;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: white;
+  color: #102033;
+  font-weight: 700;
+}
+
+.planUpload .fileDrop {
+  min-height: 82px;
+}
+
+.comparisonRule {
+  margin-top: 15px;
+  padding: 13px 15px;
+  border: 1px solid #cfeae5;
+  border-radius: 12px;
+  background: #eef8f6;
+  color: #365d59;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.comparisonTable {
+  margin-bottom: 16px;
+  padding: 20px;
+  border-radius: 18px;
+  background: white;
+  box-shadow: 0 5px 20px #1731480d;
+}
+
+.comparisonHeading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.comparisonHeading h3 {
+  margin: 6px 0 0;
+  font-size: 20px;
+}
+
+.comparisonHeading > span,
+.forecastTitle p {
+  max-width: 760px;
+  margin: 6px 0 0;
+  color: #667b8e;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.comparisonWrap {
+  max-height: none;
+}
+
+.positive {
+  color: #087a55;
+  font-weight: 800;
+}
+
+.negative {
+  color: #b33232;
+  font-weight: 800;
+}
+
+.forecastTitle {
+  padding: 22px;
+  border: 1px solid #cfeae5;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #eef8f6, #f8fbff);
+}
+
+.forecastKpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.forecastKpis article {
+  padding: 18px;
+  border: 1px solid #dce8ec;
+  border-radius: 16px;
+  background: white;
+  box-shadow: 0 5px 20px #1731480d;
+}
+
+.forecastKpis span {
+  color: #738699;
+  font-size: 12px;
+}
+
+.forecastKpis strong {
+  display: block;
+  margin-top: 9px;
+  font-size: 22px;
+}
+
+.confidence.low { color: #b06a18; }
+.confidence.moderate { color: #2576a8; }
+.confidence.high { color: #087a55; }
+
+.forecastTable {
+  margin-top: 16px;
+}
+
+@media (max-width: 1100px) {
+  .setupFields { grid-template-columns: 1fr; }
+  .forecastKpis { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 720px) {
+  .comparisonHeading { align-items: flex-start; flex-direction: column; }
+  .forecastKpis { grid-template-columns: 1fr; }
+}
