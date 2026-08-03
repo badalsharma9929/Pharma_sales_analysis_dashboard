@@ -411,8 +411,8 @@ export default function Home() {
           ) : (
             <>
               <b>Single-report mode:</b> no previous-year report is required. The
-              dashboard applies the required duplicate checks in sequence, removes
-              blank or zero transaction dates, then analyses all available business
+              dashboard applies the ordered duplicate rules and removes blank, zero
+              or invalid Transaction Dates, then analyses all available business
               trends. Forecasting is not used.
             </>
           )}
@@ -973,8 +973,7 @@ export default function Home() {
                 false,
                 false,
               ],
-              ...(!isComparisonResult
-                ? [
+              ...[
                     [
                       "Most frequently paid premium",
                       "Exact transaction_amount values ranked by number of clean transactions",
@@ -1011,8 +1010,25 @@ export default function Home() {
                       false,
                       false,
                     ],
-                  ]
-                : []),
+                    [
+                      "Gender versus sum insured",
+                      "Cover selection split by gender",
+                      "gender_sum_insured",
+                      "bar",
+                      "count",
+                      true,
+                      false,
+                    ],
+                    [
+                      "Batch versus sum insured",
+                      "Cover selection split by passing-year batch",
+                      "batch_sum_insured",
+                      "bar",
+                      "count",
+                      true,
+                      false,
+                    ],
+                  ],
             ].map(([title, subtitle, key, type, metric, multi, chrono]) => (
               <ChartPanel
                 key={String(key)}
@@ -1043,7 +1059,7 @@ export default function Home() {
                 <p>
                   {isComparisonResult
                     ? "Transaction amount is treated as premium. Dates use DD/Month Name/YYYY. Excel keeps source row order without date, premium or alphabetical sorting."
-                    : "The Excel contains only your requested columns. Duplicate rows, duplicate transaction IDs, repeated member/email/Care Email records, and blank or zero transaction dates are removed in that order. Contact numbers are standardised without country codes."}
+                    : "The Excel contains only your requested columns. Cleaning keeps the first valid row after sequential checks for full-row duplicates, Transaction ID, Member Name, Email and Care Email. Blank, zero or invalid Transaction Dates are removed, and phone country codes are stripped."}
                 </p>
               </div>
               <div className="filters">
@@ -1100,40 +1116,39 @@ export default function Home() {
           <section className="quality">
             <h2>Data cleaning summary</h2>
             <div>
-              {[
-                ["Rows received", result.data_quality.rows_before_cleaning],
-                ["Invalid dates removed", result.data_quality.invalid_dates_removed],
-                ["Exact duplicates removed", result.data_quality.exact_duplicates_removed],
-                [
-                  "Duplicate transaction IDs removed",
-                  result.data_quality.duplicate_transaction_ids_removed,
-                ],
-                ...(!isComparisonResult
-                  ? [
-                      [
-                        "Repeated member names removed",
-                        result.data_quality.duplicate_member_names_removed || 0,
-                      ],
-                      [
-                        "Repeated emails removed",
-                        result.data_quality.duplicate_emails_removed || 0,
-                      ],
-                      [
-                        "Repeated Care Emails removed",
-                        result.data_quality.duplicate_care_emails_removed || 0,
-                      ],
-                    ]
-                  : []),
-                [
-                  "Rows assigned to selected report years",
-                  result.data_quality.report_year_overrides_applied,
-                ],
-                [
-                  "Dates inferred from report year",
-                  result.data_quality.dates_inferred_from_report_year,
-                ],
-                ["Final export rows", result.data_quality.final_rows],
-              ].map(([label, value]) => (
+              {(isComparisonResult
+                ? [
+                    ["Rows received", result.data_quality.rows_before_cleaning],
+                    ["Blank, zero or invalid Transaction Dates removed", result.data_quality.invalid_dates_removed],
+                    ["Exact duplicates removed", result.data_quality.exact_duplicates_removed],
+                    [
+                      "Duplicate transaction IDs removed",
+                      result.data_quality.duplicate_transaction_ids_removed,
+                    ],
+                    [
+                      "Repeated Member + Email + Care Email combinations removed",
+                      result.data_quality.duplicate_identity_rows_removed || 0,
+                    ],
+                    ["Final export rows", result.data_quality.final_rows],
+                  ]
+                : [
+                    ["Rows received", result.data_quality.rows_before_cleaning],
+                    ["Exact duplicate rows removed", result.data_quality.exact_duplicates_removed],
+                    [
+                      "Blank, zero or invalid Transaction Dates removed",
+                      result.data_quality.invalid_dates_removed,
+                    ],
+                    [
+                      "Duplicate Transaction IDs removed",
+                      result.data_quality.duplicate_transaction_ids_removed,
+                    ],
+                    [
+                      "Repeated Member + Email + Care Email combinations removed",
+                      result.data_quality.duplicate_identity_rows_removed || 0,
+                    ],
+                    ["Final export rows", result.data_quality.final_rows],
+                  ]
+              ).map(([label, value]) => (
                 <p key={String(label)}>
                   <span>{label}</span>
                   <b>{String(value)}</b>
