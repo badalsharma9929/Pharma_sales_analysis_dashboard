@@ -104,7 +104,7 @@ async def extract_rows(
                 if is_materialized
                 else worksheet.iter_rows(
                     min_row=1,
-                    max_row=min(15, worksheet.max_row),
+                    max_row=min(15, worksheet.max_row or 15),
                     values_only=True,
                 )
             )
