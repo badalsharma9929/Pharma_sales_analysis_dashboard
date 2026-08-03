@@ -416,7 +416,7 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
   [
     ["Clean enrolments", kpis.total_records],
     ["Average premium", money(kpis.average_premium)],
-    ["Most selected cover", kpis.most_selected_sum_insured],
+    ["Total sum insured", money(kpis.total_sum_insured)],
     ["Top batch", kpis.top_batch],
   ].forEach(([label, value], index) => {
     const x = 6.65 + (index % 2) * 3.05;
