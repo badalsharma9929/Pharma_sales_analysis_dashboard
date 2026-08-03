@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import json
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile
 
-from api.insurance_aggregate import build_analysis
-from api.insurance_extract import clean_rows, extract_rows
-from api.insurance_response import build_response
+from api.insurance_extract import extract_rows
+from api.insurance_pipeline import analyze_raw_rows
 
 app = FastAPI()
 
@@ -18,6 +17,7 @@ async def analyze(
     file_labels: str = Form("[]"),
     file_years: str = Form("[]"),
     college_name: str = Form(""),
+    analysis_mode: str = Form("comparison"),
 ):
     try:
         labels = json.loads(file_labels)
@@ -36,31 +36,10 @@ async def analyze(
     raw_rows, logs = await extract_rows(
         files, password, labels, college_name, years
     )
-    if not raw_rows:
-        raise HTTPException(
-            400,
-            "No usable data sheet was found. Select a report year and ensure the workbook contains a premium/amount column.",
-        )
-
-    rows, has_policy, cleaning = clean_rows(raw_rows)
-    if not rows:
-        raise HTTPException(400, "No rows remain after Transaction Date cleaning")
-
-    analysis = build_analysis(rows)
-    plan_names = list(dict.fromkeys(item["plan"] for item in rows))
-    analysis_by_plan = {
-        plan: build_analysis([item for item in rows if item["plan"] == plan])
-        for plan in plan_names
-    }
-
-    return build_response(
-        rows,
-        has_policy,
-        analysis,
-        analysis_by_plan,
-        len(raw_rows),
-        cleaning,
+    return analyze_raw_rows(
+        raw_rows,
         logs,
         college_name,
         len(files),
+        analysis_mode,
     )
