@@ -194,7 +194,10 @@ async def extract_rows(
 def clean_rows(raw_rows: list[dict[str, Any]], strict_single: bool = False):
     rows, exact_seen, ids = [], set(), set()
     invalid = exact_duplicates = id_duplicates = inferred_dates = year_overrides = 0
-    invalid_amounts = 0
+    duplicate_member_names = duplicate_emails = duplicate_care_emails = 0
+    member_names: set[str] = set()
+    emails: set[str] = set()
+    care_emails: set[str] = set()
     has_policy = False
     canonical_plans: dict[str, str] = {}
 
@@ -218,14 +221,62 @@ def clean_rows(raw_rows: list[dict[str, Any]], strict_single: bool = False):
             tx_id = tx_id[:-2]
 
         transaction_amount = number(raw.get("transaction_amount"))
-        if strict_single and (transaction_amount is None or transaction_amount <= 0):
-            invalid_amounts += 1
-            continue
 
         policy = policy_value(raw.get(POLICY_COLUMN))
         has_policy = has_policy or (
             bool(raw.get("_policy_column_present")) if strict_single else bool(policy)
         )
+
+        # Single Report Analysis follows the user's required cleaning sequence:
+        # valid date + whole-row duplicate -> transaction ID -> member/email/Care email.
+        # Comparison mode deliberately retains its existing plan-and-year keys.
+        if strict_single:
+            exact_key = tuple(
+                (
+                    key,
+                    tx_date.isoformat()
+                    if key == "Transaction_Date"
+                    else text(raw.get(key)).casefold(),
+                )
+                for key in EXPORT_COLUMNS + [POLICY_COLUMN, *EXTRA.keys()]
+            )
+        else:
+            exact_key = None
+
+        if strict_single and exact_key in exact_seen:
+            exact_duplicates += 1
+            continue
+        if strict_single:
+            exact_seen.add(exact_key)
+
+        id_key = tx_id if strict_single else None
+        if strict_single and tx_id and id_key in ids:
+            id_duplicates += 1
+            continue
+        if strict_single and tx_id:
+            ids.add(id_key)
+
+        if strict_single:
+            member_key = text(raw.get("member_name")).casefold()
+            email_key = text(raw.get("email")).casefold()
+            care_email_key = text(raw.get("Care_Email")).casefold()
+
+            if member_key and member_key in member_names:
+                duplicate_member_names += 1
+                continue
+            if email_key and email_key in emails:
+                duplicate_emails += 1
+                continue
+            if care_email_key and care_email_key in care_emails:
+                duplicate_care_emails += 1
+                continue
+
+            if member_key:
+                member_names.add(member_key)
+            if email_key:
+                emails.add(email_key)
+            if care_email_key:
+                care_emails.add(care_email_key)
 
         exported = {
             "member_name": text(raw.get("member_name")),
@@ -234,7 +285,11 @@ def clean_rows(raw_rows: list[dict[str, Any]], strict_single: bool = False):
             "contact_number": phone(raw.get("contact_number")),
             "Alternate_Contact": phone(raw.get("Alternate_Contact")),
             "Transaction_Date": tx_date.isoformat(),
-            "transaction_amount": round(transaction_amount or 0, 2),
+            "transaction_amount": (
+                ""
+                if strict_single and transaction_amount is None
+                else round(transaction_amount or 0, 2)
+            ),
             "transaction_id": tx_id,
             POLICY_COLUMN: policy,
             "passing_year": text(raw.get("passing_year")),
@@ -255,23 +310,24 @@ def clean_rows(raw_rows: list[dict[str, Any]], strict_single: bool = False):
         plan_key = norm(supplied_plan)
         plan = canonical_plans.setdefault(plan_key, supplied_plan)
 
-        # The plan is part of the exact-duplicate key so identical-looking rows
-        # belonging to different plans are not incorrectly removed.
-        exact_key = (plan_key, analysis_year, *tuple(exported.values()))
-        if exact_key in exact_seen:
-            exact_duplicates += 1
-            continue
-        exact_seen.add(exact_key)
+        if not strict_single:
+            # The plan is part of the comparison key so matching IDs in different
+            # policies or report years continue to be retained.
+            exact_key = (plan_key, analysis_year, *tuple(exported.values()))
+            if exact_key in exact_seen:
+                exact_duplicates += 1
+                continue
+            exact_seen.add(exact_key)
 
-        id_key = (plan_key, analysis_year, tx_id)
-        if tx_id and id_key in ids:
-            id_duplicates += 1
-            continue
-        if tx_id:
-            ids.add(id_key)
+            id_key = (plan_key, analysis_year, tx_id)
+            if tx_id and id_key in ids:
+                id_duplicates += 1
+                continue
+            if tx_id:
+                ids.add(id_key)
 
         # Business rule: transaction_amount is the premium amount.
-        premium = exported["transaction_amount"]
+        premium = round(transaction_amount or 0, 2)
         sum_insured = number(raw.get("sum_insured"))
 
         age = None
@@ -331,5 +387,12 @@ def clean_rows(raw_rows: list[dict[str, Any]], strict_single: bool = False):
         "dates_inferred_from_report_year": inferred_dates,
     }
     if strict_single:
-        cleaning["blank_or_zero_premiums_removed"] = invalid_amounts
+        cleaning.update(
+            duplicate_member_names_removed=duplicate_member_names,
+            duplicate_emails_removed=duplicate_emails,
+            duplicate_care_emails_removed=duplicate_care_emails,
+            duplicate_member_email_rows_removed=(
+                duplicate_member_names + duplicate_emails + duplicate_care_emails
+            ),
+        )
     return rows, has_policy, cleaning
