@@ -21,7 +21,13 @@ def _year_rows(analysis):
 
 
 def _kpis(rows, analysis):
-    total_premium = sum(item["amount"] for item in rows)
+    # Business definitions:
+    # - Transaction Amount is the premium collected, inclusive of GST.
+    # - Total Sum Insured is the sum of Sum Insured across the final cleaned rows.
+    total_premium = sum(item["export"]["transaction_amount"] for item in rows)
+    total_sum_insured = sum(
+        item["sum_insured"] for item in rows if item.get("sum_insured") is not None
+    )
     yearly = _year_rows(analysis)
     recommendation = analysis.get("plan_recommendation", [])
     sums = analysis.get("sum_insured", [])
@@ -51,6 +57,7 @@ def _kpis(rows, analysis):
         ),
         "total_premium": round(total_premium, 2),
         "average_premium": round(total_premium / len(rows), 2),
+        "total_sum_insured": round(total_sum_insured, 2),
         "most_selected_sum_insured": sums[0]["label"] if sums else "Not available",
         "top_plan": recommendation[0]["label"] if recommendation else "Not available",
         "top_batch": batches[0]["label"] if batches else "Not available",
@@ -370,7 +377,8 @@ def build_response(
             "plans": plans,
             "current_year": current_year,
             "previous_year": previous_year,
-            "premium_definition": "transaction_amount",
+            "premium_definition": "transaction_amount_including_gst",
+            "sum_insured_definition": "sum_of_sum_insured",
             "analysis_mode": analysis_mode,
         }
     if not is_single:

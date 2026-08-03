@@ -500,6 +500,7 @@ export default function Home() {
             {[
               ["Clean records", viewKpis.total_records],
               ["Premium collected", money(viewKpis.total_premium)],
+              ["Total sum insured", money(viewKpis.total_sum_insured)],
               ["Average premium", money(viewKpis.average_premium)],
               [isComparisonResult ? "Current year" : "Report year", viewKpis.current_year],
               ...(isComparisonResult
@@ -508,7 +509,6 @@ export default function Home() {
                     ["Most common premium", viewKpis.most_common_premium],
                     ["Most selected insurer", viewKpis.most_selected_insurer],
                   ]),
-              ["Most selected sum insured", viewKpis.most_selected_sum_insured],
               ["Top batch", viewKpis.top_batch],
             ].map(([label, value]) => (
               <article key={String(label)}>

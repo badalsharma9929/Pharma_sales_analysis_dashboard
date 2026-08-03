@@ -38,6 +38,7 @@ export type Result = {
     current_year?: string;
     previous_year?: string;
     premium_definition?: string;
+    sum_insured_definition?: string;
     forecast_method?: string;
     forecast_confidence?: string;
     analysis_mode?: "single" | "comparison";
