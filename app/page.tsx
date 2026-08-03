@@ -104,7 +104,11 @@ export default function Home() {
     );
     const uploadedGroups = selectedGroups.filter((group) => group.files.length);
     if (!groups[0].files.length) {
-      setError("Upload the main report to analyse and forecast.");
+      setError(
+        requestedMode === "comparison"
+          ? "Upload the main report to compare and forecast."
+          : "Upload the main report to analyse.",
+      );
       return;
     }
     if (requestedMode === "comparison" && !groups[1].files.length) {
@@ -173,7 +177,7 @@ export default function Home() {
       setProcessingStatus(
         requestedMode === "comparison"
           ? "Combining reports, calculating comparisons and forecasting…"
-          : "Analysing the report and calculating forecasts…",
+          : "Cleaning the report and calculating business trends…",
       );
       const combinedForm = new FormData();
       preparedTokens.forEach((token, index) =>
@@ -181,6 +185,7 @@ export default function Home() {
       );
       combinedForm.append("college_name", college);
       combinedForm.append("file_count", String(flattened.length));
+      combinedForm.append("analysis_mode", requestedMode);
       const response = await fetch("/api/combine", {
         method: "POST",
         body: combinedForm,
@@ -273,11 +278,11 @@ export default function Home() {
       <header className="hero">
         <div>
           <span className="eyebrow">SINGLE REPORT OR OPTIONAL COMPARISON</span>
-          <h1>College Policy Analysis & Forecast Dashboard</h1>
+          <h1>College Policy Analysis & Comparison Dashboard</h1>
           <p>
-            Upload one report for complete analysis and future forecasting. When you
-            need a year-on-year comparison, switch modes and add a second report for
-            the same college and policy.
+            Upload one report for complete cleaned-data analysis and business trends.
+            When you need a year-on-year comparison and future forecast, switch modes
+            and add a second report for the same college and policy.
           </p>
         </div>
         <div className="privacy">🔒 Files are processed only for this request</div>
@@ -294,7 +299,7 @@ export default function Home() {
             }}
           >
             <b>Single Report Analysis</b>
-            <span>One file • full analysis • future forecast</span>
+            <span>One file • full business trends • cleaned Excel</span>
           </button>
           <button
             type="button"
@@ -349,7 +354,7 @@ export default function Home() {
                 <strong>{group.name}</strong>
                 <span>
                   {analysisMode === "single"
-                    ? "Required for analysis and future forecasting"
+                    ? "Required for cleaned analysis and business trends"
                     : index < 2
                       ? "Required only in comparison mode"
                       : "Add an older year to improve forecast confidence"}
@@ -406,8 +411,8 @@ export default function Home() {
           ) : (
             <>
               <b>Single-report mode:</b> no previous-year report is required. The
-              dashboard analyses the uploaded file and produces directional annual
-              and monthly forecasts from the history available inside it.
+              dashboard removes duplicates and blank or zero transaction data, then
+              analyses all available business trends. Forecasting is not used.
             </>
           )}
         </div>
@@ -420,10 +425,10 @@ export default function Home() {
           {loading
             ? analysisMode === "comparison"
               ? "Comparing reports & forecasting…"
-              : "Analysing report & forecasting…"
+              : "Cleaning & analysing report…"
             : analysisMode === "comparison"
               ? "Compare Reports & Forecast"
-              : "Analyse Report & Forecast"}
+              : "Analyse Single Report"}
         </button>
         {loading && processingStatus && (
           <div className="processingStatus" role="status">
@@ -455,7 +460,9 @@ export default function Home() {
                 className="primary small"
                 onClick={() => exportExcel(result, selectedView)}
               >
-                Export Complete Excel
+                {isComparisonResult
+                  ? "Export Complete Excel"
+                  : "Export Cleaned Excel"}
               </button>
             </div>
           </div>
@@ -496,7 +503,10 @@ export default function Home() {
               [isComparisonResult ? "Current year" : "Report year", viewKpis.current_year],
               ...(isComparisonResult
                 ? [["Previous year", viewKpis.previous_year]]
-                : []),
+                : [
+                    ["Most common premium", viewKpis.most_common_premium],
+                    ["Most selected insurer", viewKpis.most_selected_insurer],
+                  ]),
               ["Most selected sum insured", viewKpis.most_selected_sum_insured],
               ["Top batch", viewKpis.top_batch],
             ].map(([label, value]) => (
@@ -751,7 +761,7 @@ export default function Home() {
             )}
           </section>
 
-          {!!forecastSummary.length && (
+          {isComparisonResult && !!forecastSummary.length && (
             <>
               <section className="sectionTitle forecastTitle">
                 <span className="eyebrow">FUTURE FORECAST</span>
@@ -953,13 +963,55 @@ export default function Home() {
               ],
               [
                 "Insurer analysis",
-                "Premium contribution by insurer",
+                isComparisonResult
+                  ? "Premium contribution by insurer"
+                  : "Which insurance company was selected most often and its premium value",
                 "insurers",
                 "bar",
                 "count",
                 false,
                 false,
               ],
+              ...(!isComparisonResult
+                ? [
+                    [
+                      "Most frequently paid premium",
+                      "Exact transaction_amount values ranked by number of clean transactions",
+                      "premium_amounts",
+                      "bar",
+                      "count",
+                      false,
+                      false,
+                    ],
+                    [
+                      "Gender analysis",
+                      "Available gender-wise enrolments and premium contribution",
+                      "gender",
+                      "bar",
+                      "count",
+                      false,
+                      false,
+                    ],
+                    [
+                      "Country analysis",
+                      "Available country-wise enrolments and premium contribution",
+                      "country",
+                      "bar",
+                      "count",
+                      false,
+                      false,
+                    ],
+                    [
+                      "Payment mode analysis",
+                      "Available payment methods ranked by usage",
+                      "payment_modes",
+                      "pie",
+                      "count",
+                      false,
+                      false,
+                    ],
+                  ]
+                : []),
             ].map(([title, subtitle, key, type, metric, multi, chrono]) => (
               <ChartPanel
                 key={String(key)}
@@ -988,9 +1040,9 @@ export default function Home() {
               <div>
                 <h2>{viewLabel}: cleaned export data</h2>
                 <p>
-                  Transaction amount is treated as premium. Dates use
-                  DD/Month Name/YYYY. Excel keeps source row order without date,
-                  premium or alphabetical sorting.
+                  {isComparisonResult
+                    ? "Transaction amount is treated as premium. Dates use DD/Month Name/YYYY. Excel keeps source row order without date, premium or alphabetical sorting."
+                    : "The Excel contains only your requested columns. Duplicate rows, duplicate transaction IDs, blank or zero dates, and blank or zero premiums are removed. Contact numbers are standardised without country codes."}
                 </p>
               </div>
               <div className="filters">
@@ -1050,6 +1102,12 @@ export default function Home() {
               {[
                 ["Rows received", result.data_quality.rows_before_cleaning],
                 ["Invalid dates removed", result.data_quality.invalid_dates_removed],
+                ...(!isComparisonResult
+                  ? [[
+                      "Blank or zero premiums removed",
+                      result.data_quality.blank_or_zero_premiums_removed || 0,
+                    ]]
+                  : []),
                 ["Exact duplicates removed", result.data_quality.exact_duplicates_removed],
                 [
                   "Duplicate transaction IDs removed",
