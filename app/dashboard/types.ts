@@ -40,6 +40,7 @@ export type Result = {
     premium_definition?: string;
     forecast_method?: string;
     forecast_confidence?: string;
+    analysis_mode?: "single" | "comparison";
   };
   kpis: Record<string, number | string>;
   kpis_by_plan?: Record<string, Record<string, number | string>>;
