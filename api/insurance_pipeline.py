@@ -44,7 +44,7 @@ def analyze_raw_rows(
     if not rows:
         raise HTTPException(
             400,
-            "No rows remain after removing duplicates and blank, zero or invalid Transaction Date / premium records",
+            "No rows remain after removing duplicate records and blank, zero or invalid Transaction Dates",
         )
 
     analysis_builder = _single_analysis if mode == "single" else build_analysis

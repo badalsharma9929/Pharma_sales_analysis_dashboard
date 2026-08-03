@@ -790,17 +790,17 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
   const qualityRows = [
     ["Rows received", result.data_quality.rows_before_cleaning],
     ["Invalid transaction dates removed", result.data_quality.invalid_dates_removed],
-    ...(!isComparison
-      ? [[
-          "Blank or zero premiums removed",
-          result.data_quality.blank_or_zero_premiums_removed || 0,
-        ]]
-      : []),
     ["Exact duplicates removed", result.data_quality.exact_duplicates_removed],
     [
       "Duplicate transaction IDs removed",
       result.data_quality.duplicate_transaction_ids_removed,
     ],
+    ...(!isComparison
+      ? [[
+          "Repeated member/email/Care Email rows removed",
+          result.data_quality.duplicate_member_email_rows_removed || 0,
+        ]]
+      : []),
     [
       "Rows assigned to selected report years",
       result.data_quality.report_year_overrides_applied,

@@ -616,11 +616,12 @@ def build_single_business_trends(rows):
 
     for item in rows:
         premium = float(item["amount"])
-        premium_label = (
-            f"₹{premium:,.0f}" if premium.is_integer() else f"₹{premium:,.2f}"
-        )
-        counters["premium_amounts"][premium_label] += 1
-        amounts["premium_amounts"][premium_label] += premium
+        if premium > 0:
+            premium_label = (
+                f"₹{premium:,.0f}" if premium.is_integer() else f"₹{premium:,.2f}"
+            )
+            counters["premium_amounts"][premium_label] += 1
+            amounts["premium_amounts"][premium_label] += premium
 
         for key, value in [
             ("gender", item.get("gender")),
