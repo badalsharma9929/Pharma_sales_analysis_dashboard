@@ -16,6 +16,7 @@ async def combine_reports(
     tokens: list[UploadFile] = File(...),
     college_name: str = Form(""),
     file_count: int = Form(0),
+    analysis_mode: str = Form("comparison"),
 ):
     if not tokens:
         raise HTTPException(400, "Prepare at least one report file before analysis")
@@ -35,4 +36,5 @@ async def combine_reports(
         logs,
         college_name,
         file_count or len(tokens),
+        analysis_mode,
     )

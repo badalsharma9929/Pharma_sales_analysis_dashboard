@@ -2,26 +2,56 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from api.insurance_aggregate import build_analysis
+from api.insurance_aggregate import build_analysis, build_single_business_trends
 from api.insurance_extract import clean_rows
 from api.insurance_response import build_response
 
 
-def analyze_raw_rows(raw_rows, logs, college_name: str, file_count: int):
+FORECAST_KEYS = {
+    "annual_forecast",
+    "forecast_summary",
+    "monthly_forecast",
+    "forecast_methodology",
+}
+
+
+def _single_analysis(rows):
+    analysis = build_analysis(rows)
+    for key in FORECAST_KEYS:
+        analysis.pop(key, None)
+    analysis.update(build_single_business_trends(rows))
+    return analysis
+
+
+def analyze_raw_rows(
+    raw_rows,
+    logs,
+    college_name: str,
+    file_count: int,
+    analysis_mode: str = "comparison",
+):
     if not raw_rows:
         raise HTTPException(
             400,
             "No usable data sheet was found. Select a report year and ensure the workbook contains a premium/amount column.",
         )
 
-    rows, has_policy, cleaning = clean_rows(raw_rows)
+    mode = "single" if analysis_mode == "single" else "comparison"
+    rows, has_policy, cleaning = clean_rows(
+        raw_rows,
+        strict_single=mode == "single",
+    )
     if not rows:
-        raise HTTPException(400, "No rows remain after Transaction Date cleaning")
+        raise HTTPException(
+            400,
+            "No rows remain after removing duplicates and blank, zero or invalid Transaction Date / premium records",
+        )
 
-    analysis = build_analysis(rows)
+    analysis_builder = _single_analysis if mode == "single" else build_analysis
+    analysis = analysis_builder(rows)
     plan_names = list(dict.fromkeys(item["plan"] for item in rows))
     analysis_by_plan = {
-        plan: build_analysis([item for item in rows if item["plan"] == plan])
+        plan: analysis_builder([item for item in rows if item["plan"] == plan])
         for plan in plan_names
     }
 
@@ -35,4 +65,5 @@ def analyze_raw_rows(raw_rows, logs, college_name: str, file_count: int):
         logs,
         college_name,
         file_count,
+        mode,
     )

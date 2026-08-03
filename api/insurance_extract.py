@@ -170,6 +170,7 @@ async def extract_rows(
                     _college=text(college),
                     _file=upload.filename or f"File {file_index + 1}",
                     _year_override=year_override,
+                    _policy_column_present=POLICY_COLUMN in mapping,
                     _sequence=source_sequence,
                 )
                 raw_rows.append(record)
@@ -190,16 +191,17 @@ async def extract_rows(
     return raw_rows, logs
 
 
-def clean_rows(raw_rows: list[dict[str, Any]]):
+def clean_rows(raw_rows: list[dict[str, Any]], strict_single: bool = False):
     rows, exact_seen, ids = [], set(), set()
     invalid = exact_duplicates = id_duplicates = inferred_dates = year_overrides = 0
+    invalid_amounts = 0
     has_policy = False
     canonical_plans: dict[str, str] = {}
 
     for raw in raw_rows:
         override_year = _report_year(raw.get("_year_override"))
         tx_date = parse_date(raw.get("Transaction_Date"))
-        if not tx_date and override_year:
+        if not tx_date and override_year and not strict_single:
             from datetime import date
 
             tx_date = date(override_year, 1, 1)
@@ -215,8 +217,15 @@ def clean_rows(raw_rows: list[dict[str, Any]]):
         if tx_id.endswith(".0") and tx_id[:-2].isdigit():
             tx_id = tx_id[:-2]
 
+        transaction_amount = number(raw.get("transaction_amount"))
+        if strict_single and (transaction_amount is None or transaction_amount <= 0):
+            invalid_amounts += 1
+            continue
+
         policy = policy_value(raw.get(POLICY_COLUMN))
-        has_policy = has_policy or bool(policy)
+        has_policy = has_policy or (
+            bool(raw.get("_policy_column_present")) if strict_single else bool(policy)
+        )
 
         exported = {
             "member_name": text(raw.get("member_name")),
@@ -225,7 +234,7 @@ def clean_rows(raw_rows: list[dict[str, Any]]):
             "contact_number": phone(raw.get("contact_number")),
             "Alternate_Contact": phone(raw.get("Alternate_Contact")),
             "Transaction_Date": tx_date.isoformat(),
-            "transaction_amount": round(number(raw.get("transaction_amount")) or 0, 2),
+            "transaction_amount": round(transaction_amount or 0, 2),
             "transaction_id": tx_id,
             POLICY_COLUMN: policy,
             "passing_year": text(raw.get("passing_year")),
@@ -297,13 +306,16 @@ def clean_rows(raw_rows: list[dict[str, Any]]):
                 "premium": premium,
                 "sum_insured": sum_insured,
                 "age": age,
+                "gender": text(raw.get("gender")).title(),
                 "state": text(raw.get("state")).title(),
                 "city": text(raw.get("city")).title(),
+                "country": text(raw.get("country")).title(),
                 "pincode": text(raw.get("pincode")),
                 "course": exported["course"],
                 "passing_year": exported["passing_year"],
                 "insurance_product": " • ".join(products),
                 "insurer": text(raw.get("insurer")),
+                "payment_mode": text(raw.get("pay_mode")).title(),
                 "nominee_relationship": text(raw.get("nominee_relationship")).title(),
                 "policy": policy,
             }
@@ -311,10 +323,13 @@ def clean_rows(raw_rows: list[dict[str, Any]]):
 
     # Preserve the original source-file and source-row sequence.
     rows.sort(key=lambda item: item["sequence"])
-    return rows, has_policy, {
+    cleaning = {
         "invalid_dates_removed": invalid,
         "exact_duplicates_removed": exact_duplicates,
         "duplicate_transaction_ids_removed": id_duplicates,
         "report_year_overrides_applied": year_overrides,
         "dates_inferred_from_report_year": inferred_dates,
     }
+    if strict_single:
+        cleaning["blank_or_zero_premiums_removed"] = invalid_amounts
+    return rows, has_policy, cleaning

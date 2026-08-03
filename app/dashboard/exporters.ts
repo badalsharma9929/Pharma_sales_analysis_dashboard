@@ -83,6 +83,19 @@ export async function exportExcel(result: Result, selectedView = "all") {
   const kpis = selectedKpis(result, selectedView);
   const insights = selectedInsights(result, selectedView);
   const exportRows = selectedRows(result, selectedView);
+  const isComparison = result.meta.analysis_mode === "comparison";
+
+  if (!isComparison) {
+    addSheet(XLSX, workbook, "Cleaned_Data", exportRows, true);
+    const viewName = selectedView === "all" ? "Cleaned" : safeName(selectedView);
+    XLSX.writeFile(
+      workbook,
+      `Insurance_${viewName}_Data_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      { cellDates: true },
+    );
+    return;
+  }
+
   const analysisRows =
     selectedView === "all"
       ? result.analysis_rows
@@ -437,7 +450,7 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
     },
   );
   slide.addText(
-    `${isComparison ? `${currentYear} performance compared with ${previousYear}` : `${currentYear} single-report analysis and forecast`} • ${result.meta.files_processed || 0} source file(s) • ${Number(kpis.total_records || 0).toLocaleString("en-IN")} clean records`,
+    `${isComparison ? `${currentYear} performance compared with ${previousYear}` : `${currentYear} single-report business analysis`} • ${result.meta.files_processed || 0} source file(s) • ${Number(kpis.total_records || 0).toLocaleString("en-IN")} clean records`,
     {
       x: 0.78,
       y: 3.75,
@@ -525,7 +538,7 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
     insights[0] ||
       (isComparison
         ? "The uploaded years have been compared using the cleaned report records."
-        : "This analysis and forecast use only the uploaded report; no previous-year file was required."),
+        : "This analysis uses only the cleaned uploaded report; no forecast or previous-year file was required."),
     {
       x: 0.65,
       y: 4.25,
@@ -579,28 +592,30 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
       "Monthly movement is calculated from transaction date and transaction amount.",
   });
 
-  addChartSlide({
-    title: "The observed trend points to the next three years",
-    subtitle: `Directional annual forecast • ${result.meta.forecast_confidence || "Low"} confidence`,
-    data: analysis.annual_forecast || [],
-    chartType: pptx.ChartType.line,
-    metric: "amount",
-    multiSeries: true,
-    takeaway:
-      insights.find((item) => item.includes("directional forecast")) ||
-      "Forecasts extend the cleaned historical trend and are planning estimates, not guaranteed outcomes.",
-  });
+  if (isComparison) {
+    addChartSlide({
+      title: "The observed trend points to the next three years",
+      subtitle: `Directional annual forecast • ${result.meta.forecast_confidence || "Low"} confidence`,
+      data: analysis.annual_forecast || [],
+      chartType: pptx.ChartType.line,
+      metric: "amount",
+      multiSeries: true,
+      takeaway:
+        insights.find((item) => item.includes("directional forecast")) ||
+        "Forecasts extend the cleaned historical trend and are planning estimates, not guaranteed outcomes.",
+    });
 
-  addChartSlide({
-    title: "Monthly demand outlook",
-    subtitle: "Last 12 observed months followed by the next 12 projected months",
-    data: analysis.monthly_forecast || [],
-    chartType: pptx.ChartType.line,
-    metric: "amount",
-    multiSeries: true,
-    takeaway:
-      "Monthly projections use the uploaded trend and seasonality when at least 12 historical months are available.",
-  });
+    addChartSlide({
+      title: "Monthly demand outlook",
+      subtitle: "Last 12 observed months followed by the next 12 projected months",
+      data: analysis.monthly_forecast || [],
+      chartType: pptx.ChartType.line,
+      metric: "amount",
+      multiSeries: true,
+      takeaway:
+        "Monthly projections use the uploaded trend and seasonality when at least 12 historical months are available.",
+    });
+  }
 
   if (selectedView === "all") {
     addChartSlide({
@@ -682,6 +697,26 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
       metric: "count",
       insightPattern: "most selected sum insured",
     },
+    ...(!isComparison
+      ? [
+          {
+            title: "One premium amount is paid most often",
+            subtitle: "Exact premium values ranked by clean transaction frequency",
+            key: "premium_amounts",
+            chartType: pptx.ChartType.bar,
+            metric: "count" as Metric,
+            insightPattern: "premium amount paid most often",
+          },
+          {
+            title: "The most selected insurer leads current demand",
+            subtitle: "Insurer selection frequency and associated premium",
+            key: "insurers",
+            chartType: pptx.ChartType.bar,
+            metric: "count" as Metric,
+            insightPattern: "most frequently selected insurer",
+          },
+        ]
+      : []),
   ];
 
   chartSpecs.forEach((spec) => {
@@ -755,6 +790,12 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
   const qualityRows = [
     ["Rows received", result.data_quality.rows_before_cleaning],
     ["Invalid transaction dates removed", result.data_quality.invalid_dates_removed],
+    ...(!isComparison
+      ? [[
+          "Blank or zero premiums removed",
+          result.data_quality.blank_or_zero_premiums_removed || 0,
+        ]]
+      : []),
     ["Exact duplicates removed", result.data_quality.exact_duplicates_removed],
     [
       "Duplicate transaction IDs removed",
