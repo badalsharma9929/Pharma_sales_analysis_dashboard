@@ -192,105 +192,118 @@ async def extract_rows(
 
 
 def clean_rows(raw_rows: list[dict[str, Any]], strict_single: bool = False):
-    rows, exact_seen, ids = [], set(), set()
-    invalid = exact_duplicates = id_duplicates = inferred_dates = year_overrides = 0
-    duplicate_member_names = duplicate_emails = duplicate_care_emails = 0
-    member_names: set[str] = set()
-    emails: set[str] = set()
-    care_emails: set[str] = set()
-    has_policy = False
-    canonical_plans: dict[str, str] = {}
+    return _clean_ordered_rows(raw_rows, comparison=not strict_single)
 
-    for raw in raw_rows:
-        override_year = _report_year(raw.get("_year_override"))
-        tx_date = parse_date(raw.get("Transaction_Date"))
-        if not tx_date and override_year and not strict_single:
-            from datetime import date
 
-            tx_date = date(override_year, 1, 1)
-            inferred_dates += 1
-        if not tx_date:
-            invalid += 1
+def _duplicate_value(column: str, value: Any) -> str:
+    """Return a stable value for duplicate checks without source metadata."""
+    if column in {"Transaction_Date", "dob"}:
+        parsed = parse_date(value)
+        if parsed:
+            return parsed.isoformat()
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return text(value).casefold()
+
+
+def _raw_row_key(raw: dict[str, Any]) -> tuple[str, ...]:
+    source_columns = EXPORT_COLUMNS + [POLICY_COLUMN, *EXTRA.keys()]
+    return tuple(
+        _duplicate_value(column, raw.get(column)) for column in source_columns
+    )
+
+
+def _identifier_key(value: Any) -> str:
+    return text(value).casefold()
+
+
+def _normalised_transaction_id(value: Any) -> str:
+    transaction_id = text(value)
+    if transaction_id.endswith(".0") and transaction_id[:-2].isdigit():
+        transaction_id = transaction_id[:-2]
+    return transaction_id
+
+
+def _cleaning_scope(raw: dict[str, Any], comparison: bool) -> tuple[str, str]:
+    """Keep comparison-year reports independent while combining split files."""
+    if not comparison:
+        return ("single", "single")
+    year = str(_report_year(raw.get("_year_override")) or "")
+    label = norm(text(raw.get("_fallback_plan")) or "unspecified_plan")
+    return (label, year or text(raw.get("_file")))
+
+
+def _clean_ordered_rows(raw_rows: list[dict[str, Any]], comparison: bool):
+    """Apply the same ordered business cleaning workflow in both modes."""
+    ordered_raw_rows = sorted(raw_rows, key=lambda item: item.get("_sequence", 0))
+    has_policy = any(bool(raw.get("_policy_column_present")) for raw in raw_rows)
+
+    # Rule 1: remove blank/zero/invalid dates, then duplicate rows.
+    exact_seen = set()
+    stage_one: list[tuple[dict[str, Any], Any]] = []
+    exact_duplicates = 0
+    invalid_dates = 0
+    for raw in ordered_raw_rows:
+        transaction_date = parse_date(raw.get("Transaction_Date"))
+        if not transaction_date:
+            invalid_dates += 1
             continue
-        analysis_year = str(override_year or tx_date.year)
-        if override_year:
-            year_overrides += 1
-
-        tx_id = text(raw.get("transaction_id"))
-        if tx_id.endswith(".0") and tx_id[:-2].isdigit():
-            tx_id = tx_id[:-2]
-
-        transaction_amount = number(raw.get("transaction_amount"))
-
-        policy = policy_value(raw.get(POLICY_COLUMN))
-        has_policy = has_policy or (
-            bool(raw.get("_policy_column_present")) if strict_single else bool(policy)
-        )
-
-        # Single Report Analysis follows the user's required cleaning sequence:
-        # valid date + whole-row duplicate -> transaction ID -> member/email/Care email.
-        # Comparison mode deliberately retains its existing plan-and-year keys.
-        if strict_single:
-            exact_key = tuple(
-                (
-                    key,
-                    tx_date.isoformat()
-                    if key == "Transaction_Date"
-                    else text(raw.get(key)).casefold(),
-                )
-                for key in EXPORT_COLUMNS + [POLICY_COLUMN, *EXTRA.keys()]
-            )
-        else:
-            exact_key = None
-
-        if strict_single and exact_key in exact_seen:
+        scope = _cleaning_scope(raw, comparison)
+        exact_key = (scope, *_raw_row_key(raw))
+        if exact_key in exact_seen:
             exact_duplicates += 1
             continue
-        if strict_single:
-            exact_seen.add(exact_key)
+        exact_seen.add(exact_key)
+        stage_one.append((raw, transaction_date, scope))
 
-        id_key = tx_id if strict_single else None
-        if strict_single and tx_id and id_key in ids:
-            id_duplicates += 1
+    # Rule 2: on the remaining data, remove repeated Transaction IDs globally.
+    transaction_ids = set()
+    stage_two: list[tuple[dict[str, Any], Any, str]] = []
+    duplicate_transaction_ids = 0
+    for raw, transaction_date, scope in stage_one:
+        transaction_id = _normalised_transaction_id(raw.get("transaction_id"))
+        transaction_id_key = (scope, transaction_id.casefold())
+        if transaction_id and transaction_id_key in transaction_ids:
+            duplicate_transaction_ids += 1
             continue
-        if strict_single and tx_id:
-            ids.add(id_key)
+        if transaction_id:
+            transaction_ids.add(transaction_id_key)
+        stage_two.append((raw, transaction_date, transaction_id, scope))
 
-        if strict_single:
-            member_key = text(raw.get("member_name")).casefold()
-            email_key = text(raw.get("email")).casefold()
-            care_email_key = text(raw.get("Care_Email")).casefold()
+    # Rule 3: remove only a repeated combination of all three identity fields.
+    identity_seen = set()
+    stage_three = []
+    duplicate_identity_rows = 0
+    for raw, transaction_date, transaction_id, scope in stage_two:
+        identity = tuple(
+            _identifier_key(raw.get(column))
+            for column in ("member_name", "email", "Care_Email")
+        )
+        identity_key = (scope, *identity)
+        if any(identity) and identity_key in identity_seen:
+            duplicate_identity_rows += 1
+            continue
+        if any(identity):
+            identity_seen.add(identity_key)
+        stage_three.append((raw, transaction_date, transaction_id))
 
-            if member_key and member_key in member_names:
-                duplicate_member_names += 1
-                continue
-            if email_key and email_key in emails:
-                duplicate_emails += 1
-                continue
-            if care_email_key and care_email_key in care_emails:
-                duplicate_care_emails += 1
-                continue
-
-            if member_key:
-                member_names.add(member_key)
-            if email_key:
-                emails.add(email_key)
-            if care_email_key:
-                care_emails.add(care_email_key)
-
+    rows = []
+    canonical_plans: dict[str, str] = {}
+    for raw, transaction_date, transaction_id in stage_three:
+        transaction_amount = number(raw.get("transaction_amount"))
+        override_year = _report_year(raw.get("_year_override"))
+        analysis_year = str(override_year or transaction_date.year)
+        policy = policy_value(raw.get(POLICY_COLUMN))
         exported = {
             "member_name": text(raw.get("member_name")),
             "email": text(raw.get("email")).lower(),
             "Care_Email": text(raw.get("Care_Email")).lower(),
+            # Rule 4: phone country codes are removed only after all duplicate checks.
             "contact_number": phone(raw.get("contact_number")),
             "Alternate_Contact": phone(raw.get("Alternate_Contact")),
-            "Transaction_Date": tx_date.isoformat(),
-            "transaction_amount": (
-                ""
-                if strict_single and transaction_amount is None
-                else round(transaction_amount or 0, 2)
-            ),
-            "transaction_id": tx_id,
+            "Transaction_Date": transaction_date.isoformat(),
+            "transaction_amount": round(transaction_amount or 0, 2),
+            "transaction_id": transaction_id,
             POLICY_COLUMN: policy,
             "passing_year": text(raw.get("passing_year")),
             "course": text(raw.get("course")),
@@ -310,32 +323,13 @@ def clean_rows(raw_rows: list[dict[str, Any]], strict_single: bool = False):
         plan_key = norm(supplied_plan)
         plan = canonical_plans.setdefault(plan_key, supplied_plan)
 
-        if not strict_single:
-            # The plan is part of the comparison key so matching IDs in different
-            # policies or report years continue to be retained.
-            exact_key = (plan_key, analysis_year, *tuple(exported.values()))
-            if exact_key in exact_seen:
-                exact_duplicates += 1
-                continue
-            exact_seen.add(exact_key)
-
-            id_key = (plan_key, analysis_year, tx_id)
-            if tx_id and id_key in ids:
-                id_duplicates += 1
-                continue
-            if tx_id:
-                ids.add(id_key)
-
-        # Business rule: transaction_amount is the premium amount.
-        premium = round(transaction_amount or 0, 2)
         sum_insured = number(raw.get("sum_insured"))
-
         age = None
         dob = parse_date(raw.get("dob"))
         given_age = number(raw.get("age"))
         if dob:
-            age = tx_date.year - dob.year - (
-                (tx_date.month, tx_date.day) < (dob.month, dob.day)
+            age = transaction_date.year - dob.year - (
+                (transaction_date.month, transaction_date.day) < (dob.month, dob.day)
             )
         elif given_age is not None and 0 <= given_age <= 120:
             age = int(given_age)
@@ -349,17 +343,17 @@ def clean_rows(raw_rows: list[dict[str, Any]], strict_single: bool = False):
         rows.append(
             {
                 "export": exported,
-                "sequence": raw["_sequence"],
-                "file": raw["_file"],
+                "sequence": raw.get("_sequence", 0),
+                "file": raw.get("_file", ""),
                 "plan": plan,
-                "college": raw["_college"],
-                "date": tx_date,
+                "college": raw.get("_college", ""),
+                "date": transaction_date,
                 "year": analysis_year,
-                "month_number": tx_date.month,
-                "month_label": tx_date.strftime("%b"),
-                "month_period": f"{tx_date.strftime('%b')} {analysis_year}",
-                "amount": premium,
-                "premium": premium,
+                "month_number": transaction_date.month,
+                "month_label": transaction_date.strftime("%b"),
+                "month_period": f"{transaction_date.strftime('%b')} {analysis_year}",
+                "amount": exported["transaction_amount"],
+                "premium": exported["transaction_amount"],
                 "sum_insured": sum_insured,
                 "age": age,
                 "gender": text(raw.get("gender")).title(),
@@ -377,22 +371,16 @@ def clean_rows(raw_rows: list[dict[str, Any]], strict_single: bool = False):
             }
         )
 
-    # Preserve the original source-file and source-row sequence.
-    rows.sort(key=lambda item: item["sequence"])
-    cleaning = {
-        "invalid_dates_removed": invalid,
+    return rows, has_policy, {
+        "invalid_dates_removed": invalid_dates,
         "exact_duplicates_removed": exact_duplicates,
-        "duplicate_transaction_ids_removed": id_duplicates,
-        "report_year_overrides_applied": year_overrides,
-        "dates_inferred_from_report_year": inferred_dates,
+        "duplicate_transaction_ids_removed": duplicate_transaction_ids,
+        "duplicate_member_names_removed": 0,
+        "duplicate_emails_removed": 0,
+        "duplicate_care_emails_removed": 0,
+        "duplicate_identity_rows_removed": duplicate_identity_rows,
+        "report_year_overrides_applied": sum(
+            1 for raw, *_ in stage_three if _report_year(raw.get("_year_override"))
+        ),
+        "dates_inferred_from_report_year": 0,
     }
-    if strict_single:
-        cleaning.update(
-            duplicate_member_names_removed=duplicate_member_names,
-            duplicate_emails_removed=duplicate_emails,
-            duplicate_care_emails_removed=duplicate_care_emails,
-            duplicate_member_email_rows_removed=(
-                duplicate_member_names + duplicate_emails + duplicate_care_emails
-            ),
-        )
-    return rows, has_policy, cleaning
