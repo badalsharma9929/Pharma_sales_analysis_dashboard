@@ -18,9 +18,7 @@ ALIASES = {
     ],
     "transaction_amount": [
         "transaction amount", "transaction_amount", "payment amount",
-        "paid amount", "txn amount", "amount", "premium", "premium amount",
-        "total premium", "net premium", "gross premium", "premium inc gst",
-        "premium including gst", "amount paid",
+        "paid amount", "txn amount", "amount paid",
     ],
     "transaction_id": ["transaction id", "transaction_id", "txn id", "payment id", "reference id", "utr", "receipt number"],
     POLICY_COLUMN: ["policy new renewal", "policy (new renewal)", "new renewal", "new/renewal", "policy status", "new or renewal"],
@@ -37,7 +35,6 @@ EXTRA = {
     "country": ["country", "nation"],
     "pincode": ["pincode", "pin code", "postal code", "zip code"],
     "sum_insured": ["sum insured", "sum_insured", "sum assured", "coverage amount", "cover amount"],
-    "premium": ["premium inc gst", "premium_inc_gst", "premium including gst", "gross premium", "premium"],
     "insurer": ["insurer", "insurance company", "carrier"],
     "plan_name": [
         "plan name", "plan_name", "insurance plan", "product name",
