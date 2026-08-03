@@ -22,6 +22,7 @@ export default function Home() {
   const [result, setResult] = useState<Result | null>(null);
   const [selectedView, setSelectedView] = useState("all");
   const [loading, setLoading] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState("");
   const [pptLoading, setPptLoading] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -104,27 +105,58 @@ export default function Home() {
     }
 
     setLoading(true);
+    setProcessingStatus("");
     setError("");
     setResult(null);
     setSelectedView("all");
 
     try {
-      const form = new FormData();
-      flattened.forEach(({ file }) => form.append("files", file));
-      form.append(
-        "file_labels",
-        JSON.stringify(flattened.map(({ label }) => label)),
-      );
-      form.append(
-        "file_years",
-        JSON.stringify(flattened.map(({ year }) => year)),
-      );
-      form.append("college_name", college);
-      form.append("password", password);
+      const preparedTokens: Blob[] = [];
+      for (let index = 0; index < flattened.length; index += 1) {
+        const { file, label, year } = flattened[index];
+        setProcessingStatus(
+          `Preparing report ${index + 1} of ${flattened.length}: ${file.name}`,
+        );
 
-      const response = await fetch("/api/process", {
+        const form = new FormData();
+        form.append("files", file);
+        form.append("file_labels", JSON.stringify([label]));
+        form.append("file_years", JSON.stringify([year]));
+        form.append("college_name", college);
+        form.append("password", password);
+
+        const preparedResponse = await fetch("/api/prepare", {
+          method: "POST",
+          body: form,
+        });
+        if (!preparedResponse.ok) {
+          const preparedText = await preparedResponse.text();
+          let detail = "";
+          try {
+            detail = preparedText ? JSON.parse(preparedText).detail : "";
+          } catch {
+            detail = "";
+          }
+          throw new Error(
+            detail ||
+              (preparedResponse.status === 413
+                ? `${file.name} is too large for one upload. Split it into two files for report year ${year}, then select both files in the same year slot.`
+                : `Unable to prepare ${file.name} (${preparedResponse.status}).`),
+          );
+        }
+        preparedTokens.push(await preparedResponse.blob());
+      }
+
+      setProcessingStatus("Combining both years and calculating forecasts…");
+      const combinedForm = new FormData();
+      preparedTokens.forEach((token, index) =>
+        combinedForm.append("tokens", token, `prepared-report-${index + 1}.bin`),
+      );
+      combinedForm.append("college_name", college);
+      combinedForm.append("file_count", String(flattened.length));
+      const response = await fetch("/api/combine", {
         method: "POST",
-        body: form,
+        body: combinedForm,
       });
       const responseText = await response.text();
       let data: any = {};
@@ -140,7 +172,9 @@ export default function Home() {
       if (!response.ok) {
         throw new Error(
           data.detail ||
-            `Unable to process workbook (${response.status}). Please verify the file and password.`,
+            (response.status === 413
+              ? "The prepared comparison is still too large. Split the larger workbook into two files for the same report year and select both parts together."
+              : `Unable to process workbook (${response.status}). Please verify the file and password.`),
         );
       }
       setResult(data);
@@ -148,6 +182,7 @@ export default function Home() {
       setError(exception.message || "Processing failed.");
     } finally {
       setLoading(false);
+      setProcessingStatus("");
     }
   }
 
@@ -303,6 +338,11 @@ export default function Home() {
         >
           {loading ? "Comparing reports & forecasting…" : "Compare Reports & Forecast"}
         </button>
+        {loading && processingStatus && (
+          <div className="processingStatus" role="status">
+            {processingStatus}
+          </div>
+        )}
         {error && <div className="error">{error}</div>}
       </section>
 
