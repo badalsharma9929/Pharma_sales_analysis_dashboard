@@ -100,10 +100,19 @@ export async function exportExcel(result: Result, selectedView = "all") {
   addSheet(XLSX, workbook, "Analysis_Data", analysisRows, true);
 
   const commonSheets: [string, string][] = [
+    ["YoY_Comparison", "comparison_summary"],
     ["Current_vs_Previous", "latest_vs_previous"],
     ["Yearly_Trend", "yearly_trend"],
     ["Month_By_Year", "month_by_year"],
     ["Monthly_Trend", "monthly_trend"],
+    ["Annual_Forecast", "forecast_summary"],
+    ["Monthly_Forecast", "monthly_forecast"],
+    ["New_Renewal_By_Year", "policy_year_comparison"],
+    ["Cover_By_Year", "sum_insured_year_comparison"],
+    ["Premium_Band_By_Year", "premium_band_year_comparison"],
+    ["State_By_Year", "state_year_comparison"],
+    ["Course_By_Year", "course_year_comparison"],
+    ["Batch_By_Year", "passing_year_comparison"],
     ["Daily_Trend", "daily_trend"],
     ["Age_Analysis", "age"],
     ["State_Analysis", "state"],
@@ -178,13 +187,12 @@ function native(data: Item[], metric: Metric, seriesKey = false) {
   return series.map((name) => ({
     name,
     labels,
-    values: labels.map((label) =>
-      Number(
-        data.find((row) => row.label === label && row.series === name)?.[
-          metric
-        ] || 0,
-      ),
-    ),
+    values: labels.map((label) => {
+      const row = data.find(
+        (item) => item.label === label && item.series === name,
+      );
+      return row ? Number(row[metric] || 0) : null;
+    }),
   }));
 }
 
@@ -560,6 +568,29 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
       "Monthly movement is calculated from transaction date and transaction amount.",
   });
 
+  addChartSlide({
+    title: "The observed trend points to the next three years",
+    subtitle: `Directional annual forecast • ${result.meta.forecast_confidence || "Low"} confidence`,
+    data: analysis.annual_forecast || [],
+    chartType: pptx.ChartType.line,
+    metric: "amount",
+    multiSeries: true,
+    takeaway:
+      insights.find((item) => item.includes("directional forecast")) ||
+      "Forecasts extend the cleaned historical trend and are planning estimates, not guaranteed outcomes.",
+  });
+
+  addChartSlide({
+    title: "Monthly demand outlook",
+    subtitle: "Last 12 observed months followed by the next 12 projected months",
+    data: analysis.monthly_forecast || [],
+    chartType: pptx.ChartType.line,
+    metric: "amount",
+    multiSeries: true,
+    takeaway:
+      "Monthly projections use the uploaded trend and seasonality when at least 12 historical months are available.",
+  });
+
   if (selectedView === "all") {
     addChartSlide({
       title: "One plan leads the college portfolio",
@@ -715,6 +746,14 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
     [
       "Duplicate transaction IDs removed",
       result.data_quality.duplicate_transaction_ids_removed,
+    ],
+    [
+      "Rows assigned to selected report years",
+      result.data_quality.report_year_overrides_applied,
+    ],
+    [
+      "Dates inferred from selected year",
+      result.data_quality.dates_inferred_from_report_year,
     ],
     ["Final clean records", result.data_quality.final_rows],
   ];
