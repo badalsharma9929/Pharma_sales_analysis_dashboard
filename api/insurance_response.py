@@ -70,7 +70,13 @@ def _kpis(rows, analysis):
     }
 
 
-def _insights(rows, analysis, college: str, scope_name: str | None = None):
+def _insights(
+    rows,
+    analysis,
+    college: str,
+    scope_name: str | None = None,
+    include_forecast: bool = True,
+):
     insights: list[str] = []
     scope = scope_name or text(college) or "the college"
     yearly = _year_rows(analysis)
@@ -120,7 +126,7 @@ def _insights(rows, analysis, college: str, scope_name: str | None = None):
             )
 
         forecast = analysis.get("forecast_summary", [])
-        if forecast:
+        if include_forecast and forecast:
             next_year = forecast[0]
             growth = next_year.get("growth_rate")
             movement = (
@@ -139,7 +145,7 @@ def _insights(rows, analysis, college: str, scope_name: str | None = None):
             f"The {only['label']} report for {scope} contains {only['count']} enrolments and ₹{only['amount']:,.0f} in premium; no previous-year file was required for this analysis."
         )
         forecast = analysis.get("forecast_summary", [])
-        if forecast:
+        if include_forecast and forecast:
             next_year = forecast[0]
             insights.append(
                 f"The baseline forecast for {next_year['label']} is ₹{next_year['amount']:,.0f} premium and {next_year['count']} enrolments. Confidence is low because only one report year is available."
@@ -221,6 +227,35 @@ def _insights(rows, analysis, college: str, scope_name: str | None = None):
     return insights
 
 
+def _single_business_insights(analysis):
+    insights = []
+    premium_amounts = analysis.get("premium_amounts", [])
+    if premium_amounts:
+        leader = premium_amounts[0]
+        insights.append(
+            f"{leader['label']} is the premium amount paid most often, appearing in "
+            f"{leader['count']} clean transactions."
+        )
+
+    products = analysis.get("insurance_products", [])
+    if products:
+        leader = products[0]
+        insights.append(
+            f"{leader['label']} is the most frequently selected insurance product or "
+            f"policy type, with {leader['count']} enrolments and "
+            f"₹{leader.get('amount', 0):,.0f} premium."
+        )
+
+    insurers = analysis.get("insurers", [])
+    if insurers:
+        leader = insurers[0]
+        insights.append(
+            f"{leader['label']} is the most frequently selected insurer, with "
+            f"{leader['count']} enrolments and ₹{leader.get('amount', 0):,.0f} premium."
+        )
+    return insights
+
+
 def build_response(
     rows,
     has_policy,
@@ -231,6 +266,7 @@ def build_response(
     logs,
     college,
     file_count,
+    analysis_mode="comparison",
 ):
     columns = EXPORT_COLUMNS.copy()
     if has_policy:
@@ -261,23 +297,71 @@ def build_response(
         plan: _kpis(rows_by_plan[plan], analysis_by_plan[plan])
         for plan in plans
     }
-    insights = _insights(rows, analysis, college)
+    is_single = analysis_mode == "single"
+    insights = _insights(
+        rows,
+        analysis,
+        college,
+        include_forecast=not is_single,
+    )
+    if is_single:
+        insights.extend(_single_business_insights(analysis))
     insights_by_plan = {
-        plan: _insights(
-            rows_by_plan[plan],
-            analysis_by_plan[plan],
-            college,
-            scope_name=plan,
+        plan: (
+            _insights(
+                rows_by_plan[plan],
+                analysis_by_plan[plan],
+                college,
+                scope_name=plan,
+                include_forecast=not is_single,
+            )
+            + (
+                _single_business_insights(analysis_by_plan[plan])
+                if is_single
+                else []
+            )
         )
         for plan in plans
     }
+
+    if is_single:
+        for values, scoped_analysis in [
+            (kpis, analysis),
+            *[
+                (kpis_by_plan[plan], analysis_by_plan[plan])
+                for plan in plans
+            ],
+        ]:
+            premium_amounts = scoped_analysis.get("premium_amounts", [])
+            insurers = scoped_analysis.get("insurers", [])
+            products = scoped_analysis.get("insurance_products", [])
+            values.update(
+                {
+                    "most_common_premium": premium_amounts[0]["label"]
+                    if premium_amounts
+                    else "Not available",
+                    "most_selected_insurer": insurers[0]["label"]
+                    if insurers
+                    else "Not available",
+                    "most_selected_product": products[0]["label"]
+                    if products
+                    else "Not available",
+                }
+            )
+            for key in [
+                "forecast_year",
+                "forecast_premium",
+                "forecast_enrolments",
+                "forecast_growth_rate",
+                "forecast_confidence",
+            ]:
+                values.pop(key, None)
 
     yearly = _year_rows(analysis)
     current_year = yearly[-1]["label"] if yearly else ""
     previous_year = yearly[-2]["label"] if len(yearly) >= 2 else ""
 
-    return {
-        "meta": {
+    meta = {
             "export_columns": columns,
             "policy_included": has_policy,
             "processed_at": datetime.now().isoformat(timespec="seconds"),
@@ -287,9 +371,16 @@ def build_response(
             "current_year": current_year,
             "previous_year": previous_year,
             "premium_definition": "transaction_amount",
-            "forecast_method": "Least-squares trend with monthly seasonality",
-            "forecast_confidence": kpis.get("forecast_confidence", "Low"),
-        },
+            "analysis_mode": analysis_mode,
+        }
+    if not is_single:
+        meta.update(
+            forecast_method="Least-squares trend with monthly seasonality",
+            forecast_confidence=kpis.get("forecast_confidence", "Low"),
+        )
+
+    return {
+        "meta": meta,
         "kpis": kpis,
         "kpis_by_plan": kpis_by_plan,
         "cleaned_rows": cleaned,
