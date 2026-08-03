@@ -270,21 +270,32 @@ def _clean_ordered_rows(raw_rows: list[dict[str, Any]], comparison: bool):
             transaction_ids.add(transaction_id_key)
         stage_two.append((raw, transaction_date, transaction_id, scope))
 
-    # Rule 3: remove only a repeated combination of all three identity fields.
-    identity_seen = set()
+    # Rule 3: after date/row/transaction-ID cleaning, each nonblank email ID
+    # may occur only once in an uploaded report.  Email and Care Email are
+    # checked independently; requiring Member + Email + Care Email to match
+    # allowed repeated email IDs to inflate enrolment and premium totals.
+    email_seen = set()
+    care_email_seen = set()
     stage_three = []
-    duplicate_identity_rows = 0
+    duplicate_emails = 0
+    duplicate_care_emails = 0
     for raw, transaction_date, transaction_id, scope in stage_two:
-        identity = tuple(
-            _identifier_key(raw.get(column))
-            for column in ("member_name", "email", "Care_Email")
-        )
-        identity_key = (scope, *identity)
-        if any(identity) and identity_key in identity_seen:
-            duplicate_identity_rows += 1
+        email = _identifier_key(raw.get("email"))
+        care_email = _identifier_key(raw.get("Care_Email"))
+        email_key = (scope, email)
+        care_email_key = (scope, care_email)
+
+        if email and email_key in email_seen:
+            duplicate_emails += 1
             continue
-        if any(identity):
-            identity_seen.add(identity_key)
+        if care_email and care_email_key in care_email_seen:
+            duplicate_care_emails += 1
+            continue
+
+        if email:
+            email_seen.add(email_key)
+        if care_email:
+            care_email_seen.add(care_email_key)
         stage_three.append((raw, transaction_date, transaction_id))
 
     rows = []
@@ -376,9 +387,9 @@ def _clean_ordered_rows(raw_rows: list[dict[str, Any]], comparison: bool):
         "exact_duplicates_removed": exact_duplicates,
         "duplicate_transaction_ids_removed": duplicate_transaction_ids,
         "duplicate_member_names_removed": 0,
-        "duplicate_emails_removed": 0,
-        "duplicate_care_emails_removed": 0,
-        "duplicate_identity_rows_removed": duplicate_identity_rows,
+        "duplicate_emails_removed": duplicate_emails,
+        "duplicate_care_emails_removed": duplicate_care_emails,
+        "duplicate_identity_rows_removed": duplicate_emails + duplicate_care_emails,
         "report_year_overrides_applied": sum(
             1 for raw, *_ in stage_three if _report_year(raw.get("_year_override"))
         ),

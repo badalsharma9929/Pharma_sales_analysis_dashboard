@@ -1059,7 +1059,7 @@ export default function Home() {
                 <p>
                   {isComparisonResult
                     ? "Transaction amount is treated as premium. Dates use DD/Month Name/YYYY. Excel keeps source row order without date, premium or alphabetical sorting."
-                    : "The Excel contains only your requested columns. Cleaning keeps the first valid row after sequential checks for full-row duplicates, Transaction ID, Member Name, Email and Care Email. Blank, zero or invalid Transaction Dates are removed, and phone country codes are stripped."}
+                    : "The Excel contains only your requested columns. Cleaning first removes blank, zero or invalid Transaction Dates, then full-row and Transaction ID duplicates, followed by later occurrences of the same Email or Care Email. Phone country codes are stripped."}
                 </p>
               </div>
               <div className="filters">
@@ -1125,10 +1125,8 @@ export default function Home() {
                       "Duplicate transaction IDs removed",
                       result.data_quality.duplicate_transaction_ids_removed,
                     ],
-                    [
-                      "Repeated Member + Email + Care Email combinations removed",
-                      result.data_quality.duplicate_identity_rows_removed || 0,
-                    ],
+                    ["Repeated Email IDs removed", result.data_quality.duplicate_emails_removed || 0],
+                    ["Repeated Care Email IDs removed", result.data_quality.duplicate_care_emails_removed || 0],
                     ["Final export rows", result.data_quality.final_rows],
                   ]
                 : [
@@ -1142,10 +1140,8 @@ export default function Home() {
                       "Duplicate Transaction IDs removed",
                       result.data_quality.duplicate_transaction_ids_removed,
                     ],
-                    [
-                      "Repeated Member + Email + Care Email combinations removed",
-                      result.data_quality.duplicate_identity_rows_removed || 0,
-                    ],
+                    ["Repeated Email IDs removed", result.data_quality.duplicate_emails_removed || 0],
+                    ["Repeated Care Email IDs removed", result.data_quality.duplicate_care_emails_removed || 0],
                     ["Final export rows", result.data_quality.final_rows],
                   ]
               ).map(([label, value]) => (
