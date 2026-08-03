@@ -23,6 +23,12 @@ def _single_analysis(rows):
     return analysis
 
 
+def _comparison_analysis(rows):
+    analysis = build_analysis(rows)
+    analysis.update(build_single_business_trends(rows))
+    return analysis
+
+
 def analyze_raw_rows(
     raw_rows,
     logs,
@@ -44,10 +50,10 @@ def analyze_raw_rows(
     if not rows:
         raise HTTPException(
             400,
-            "No rows remain after removing duplicate records and blank, zero or invalid Transaction Dates",
+            "No rows remain after ordered duplicate checks and removal of blank, zero or invalid Transaction Dates",
         )
 
-    analysis_builder = _single_analysis if mode == "single" else build_analysis
+    analysis_builder = _single_analysis if mode == "single" else _comparison_analysis
     analysis = analysis_builder(rows)
     plan_names = list(dict.fromkeys(item["plan"] for item in rows))
     analysis_by_plan = {
