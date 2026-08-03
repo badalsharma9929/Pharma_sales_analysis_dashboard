@@ -480,7 +480,11 @@ def build_analysis(rows):
         "forecast_methodology": [
             {
                 "label": "Method",
-                "value": "Least-squares trend with monthly seasonality when at least 12 months are available",
+                "value": (
+                    "Single-year baseline with monthly trend and seasonality when at least 12 months are available"
+                    if history_years == 1
+                    else "Least-squares trend with monthly seasonality when at least 12 months are available"
+                ),
             },
             {"label": "Confidence", "value": forecast_confidence},
             {"label": "Historical years", "value": history_years},

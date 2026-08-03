@@ -246,7 +246,13 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
   const analysis = selectedAnalysis(result, selectedView);
   const kpis = selectedKpis(result, selectedView);
   const insights = selectedInsights(result, selectedView);
-  const viewName = selectedView === "all" ? "Combined Plan Comparison" : selectedView;
+  const isComparison = result.meta.analysis_mode === "comparison";
+  const viewName =
+    selectedView === "all"
+      ? isComparison
+        ? "Combined Plan Comparison"
+        : "Portfolio Analysis"
+      : selectedView;
   const currentYear = String(kpis.current_year || "Current year");
   const previousYear = String(kpis.previous_year || "Previous year");
 
@@ -431,7 +437,7 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
     },
   );
   slide.addText(
-    `${currentYear} performance compared with ${previousYear} • ${result.meta.files_processed || 0} source file(s) • ${Number(kpis.total_records || 0).toLocaleString("en-IN")} clean records`,
+    `${isComparison ? `${currentYear} performance compared with ${previousYear}` : `${currentYear} single-report analysis and forecast`} • ${result.meta.files_processed || 0} source file(s) • ${Number(kpis.total_records || 0).toLocaleString("en-IN")} clean records`,
     {
       x: 0.78,
       y: 3.75,
@@ -516,7 +522,10 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
     });
   });
   slide.addText(
-    insights[0] || "Upload at least two years to produce a year-over-year conclusion.",
+    insights[0] ||
+      (isComparison
+        ? "The uploaded years have been compared using the cleaned report records."
+        : "This analysis and forecast use only the uploaded report; no previous-year file was required."),
     {
       x: 0.65,
       y: 4.25,
@@ -545,16 +554,18 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
     },
   );
 
-  addChartSlide({
-    title: `${currentYear} versus ${previousYear}`,
-    subtitle: "Premium performance and enrolment volume for the latest two uploaded years",
-    data: analysis.latest_vs_previous || [],
-    chartType: pptx.ChartType.bar,
-    metric: "amount",
-    takeaway:
-      insights.find((item) => item.startsWith("Premium collected")) ||
-      "Upload the same plan for two years to calculate year-over-year premium movement.",
-  });
+  if (isComparison) {
+    addChartSlide({
+      title: `${currentYear} versus ${previousYear}`,
+      subtitle: "Premium performance and enrolment volume for the latest two uploaded years",
+      data: analysis.latest_vs_previous || [],
+      chartType: pptx.ChartType.bar,
+      metric: "amount",
+      takeaway:
+        insights.find((item) => item.startsWith("Premium collected")) ||
+        "The uploaded reports are compared by premium and enrolment movement.",
+    });
+  }
 
   addChartSlide({
     title: "The strongest months explain the annual result",
@@ -603,17 +614,19 @@ export async function exportPowerPoint(result: Result, selectedView = "all") {
         "Plan comparison uses premium, enrolments, batch reach and cover participation.",
     });
 
-    addChartSlide({
-      title: "Plan leadership changes across years",
-      subtitle: "Premium collected by detected plan and transaction year",
-      data: result.analysis.plan_year_comparison || [],
-      chartType: pptx.ChartType.bar,
-      metric: "amount",
-      multiSeries: true,
-      takeaway:
-        insights.find((item) => item.includes("suitability")) ||
-        "Compare plan performance over time before selecting the best fit for the college.",
-    });
+    if (isComparison) {
+      addChartSlide({
+        title: "Plan leadership changes across years",
+        subtitle: "Premium collected by detected plan and transaction year",
+        data: result.analysis.plan_year_comparison || [],
+        chartType: pptx.ChartType.bar,
+        metric: "amount",
+        multiSeries: true,
+        takeaway:
+          insights.find((item) => item.includes("suitability")) ||
+          "Compare plan performance over time before selecting the best fit for the college.",
+      });
+    }
   }
 
   const chartSpecs: Array<{

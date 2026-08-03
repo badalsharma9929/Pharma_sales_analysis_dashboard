@@ -17,10 +17,10 @@ async def combine_reports(
     college_name: str = Form(""),
     file_count: int = Form(0),
 ):
-    if len(tokens) < 2:
-        raise HTTPException(400, "Prepare at least two report files before comparison")
+    if not tokens:
+        raise HTTPException(400, "Prepare at least one report file before analysis")
     if len(tokens) > 20:
-        raise HTTPException(400, "A maximum of 20 report files can be compared")
+        raise HTTPException(400, "A maximum of 20 report files can be analysed")
 
     raw_rows, logs = [], []
     for token in tokens:
