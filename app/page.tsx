@@ -411,8 +411,9 @@ export default function Home() {
           ) : (
             <>
               <b>Single-report mode:</b> no previous-year report is required. The
-              dashboard removes duplicates and blank or zero transaction data, then
-              analyses all available business trends. Forecasting is not used.
+              dashboard applies the required duplicate checks in sequence, removes
+              blank or zero transaction dates, then analyses all available business
+              trends. Forecasting is not used.
             </>
           )}
         </div>
@@ -1042,7 +1043,7 @@ export default function Home() {
                 <p>
                   {isComparisonResult
                     ? "Transaction amount is treated as premium. Dates use DD/Month Name/YYYY. Excel keeps source row order without date, premium or alphabetical sorting."
-                    : "The Excel contains only your requested columns. Duplicate rows, duplicate transaction IDs, blank or zero dates, and blank or zero premiums are removed. Contact numbers are standardised without country codes."}
+                    : "The Excel contains only your requested columns. Duplicate rows, duplicate transaction IDs, repeated member/email/Care Email records, and blank or zero transaction dates are removed in that order. Contact numbers are standardised without country codes."}
                 </p>
               </div>
               <div className="filters">
@@ -1102,17 +1103,27 @@ export default function Home() {
               {[
                 ["Rows received", result.data_quality.rows_before_cleaning],
                 ["Invalid dates removed", result.data_quality.invalid_dates_removed],
-                ...(!isComparisonResult
-                  ? [[
-                      "Blank or zero premiums removed",
-                      result.data_quality.blank_or_zero_premiums_removed || 0,
-                    ]]
-                  : []),
                 ["Exact duplicates removed", result.data_quality.exact_duplicates_removed],
                 [
                   "Duplicate transaction IDs removed",
                   result.data_quality.duplicate_transaction_ids_removed,
                 ],
+                ...(!isComparisonResult
+                  ? [
+                      [
+                        "Repeated member names removed",
+                        result.data_quality.duplicate_member_names_removed || 0,
+                      ],
+                      [
+                        "Repeated emails removed",
+                        result.data_quality.duplicate_emails_removed || 0,
+                      ],
+                      [
+                        "Repeated Care Emails removed",
+                        result.data_quality.duplicate_care_emails_removed || 0,
+                      ],
+                    ]
+                  : []),
                 [
                   "Rows assigned to selected report years",
                   result.data_quality.report_year_overrides_applied,
