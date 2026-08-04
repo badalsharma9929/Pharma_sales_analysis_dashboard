@@ -126,13 +126,27 @@ async def extract_rows(
             _, header_row, headers = best
             mapping, dimensions = {}, {}
 
+            # Prefer the exact canonical header wherever it exists.  Several base
+            # reports contain an earlier Enrollment_Date column as well as the
+            # actual Transaction_Date column; scanning aliases left-to-right made
+            # the earlier column win and allowed zero transaction rows into the
+            # analysis.  Aliases are now only a fallback when the canonical field
+            # is genuinely absent.
             for key, values in alias.items():
+                canonical = norm(key)
+                if canonical in headers:
+                    mapping[key] = headers.index(canonical)
+                    continue
                 for index, header in enumerate(headers):
                     if header in values:
                         mapping[key] = index
                         break
 
             for key, values in extra.items():
+                canonical = norm(key)
+                if canonical in headers:
+                    dimensions[key] = headers.index(canonical)
+                    continue
                 for index, header in enumerate(headers):
                     if header in values:
                         dimensions[key] = index
