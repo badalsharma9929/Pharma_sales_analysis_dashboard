@@ -35,7 +35,7 @@ function addSheet(
     if (index >= 0) {
       for (let row = 2; row <= values.length + 1; row += 1) {
         const address = XLSX.utils.encode_cell({ r: row - 1, c: index });
-        if (worksheet[address]) worksheet[address].z = "dd/mmmm/yyyy";
+        if (worksheet[address]) worksheet[address].z = "dd-mm-yyyy";
       }
     }
   }
